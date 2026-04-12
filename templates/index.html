@@ -24,6 +24,10 @@
     .search-overlay.show { display: flex; }
     .search-box { background: #fff; border-radius: 8px; padding: 24px; width: 100%; max-width: 560px; }
     .pagination-area { padding: 16px 0; }
+    .content-wrap { width: 100%; max-width: 860px; margin: 0 auto; padding: 16px 8px 24px; }
+    @media (min-width: 768px) {
+      .content-wrap { padding: 24px 12px 32px; }
+    }
   </style>
 </head>
 <body>
@@ -72,7 +76,7 @@
   </div>
 </div>
 
-<div class="container py-4" style="max-width: 860px;">
+<div class="content-wrap">
 
   {% if query %}
   <p class="text-muted small mb-2">"{{ query }}" 검색 결과</p>
