@@ -65,7 +65,7 @@
     {% for a in articles %}
     <div class="article-row">
       <span class="site-badge">{{ a.site_name }}</span>
-      <a class="article-title" href="{{ a.url }}" target="_blank" rel="noopener">{{ a.title }}</a>
+      <a class="article-title" href="{{ a.url }}">{{ a.title }}</a>
       <span class="article-date"
             {% if a.published_at %}
             data-datetime="{{ a.published_at.isoformat() if a.published_at is not string else a.published_at }}"
