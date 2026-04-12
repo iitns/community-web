@@ -25,6 +25,11 @@ SITE_ORDER = [
     '펨코',
 ]
 
+SITE_DISPLAY_NAMES = {
+    '루리웹(유게)': '루리(육)',
+    '루리웹(유머)': '루리(윰)',
+}
+
 PG_CONN = {
     'host':     os.environ.get('PG_HOST', 'postgresql-service'),
     'port':     int(os.environ.get('PG_PORT', 5432)),
@@ -223,6 +228,7 @@ def index():
         query='',
         site=site,
         site_names=site_names,
+        site_display_names=SITE_DISPLAY_NAMES,
     )
 
 
@@ -267,6 +273,7 @@ def search():
         query=query,
         site=site,
         site_names=site_names,
+        site_display_names=SITE_DISPLAY_NAMES,
     )
 
 
