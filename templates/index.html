@@ -24,7 +24,7 @@
 <body>
 
 <nav class="navbar sticky-top px-3 py-2">
-  <span class="fw-bold fs-5">커뮤니티 최신글</span>
+  <a href="/" class="fw-bold fs-5 text-decoration-none text-dark">커뮤니티 최신글</a>
   <button class="btn btn-link ms-auto p-1" onclick="toggleSearch()">
     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16">
       <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.099zm-5.242 1.156a5.5 5.5 0 1 1 0-11 5.5 5.5 0 0 1 0 11z"/>
@@ -66,7 +66,14 @@
     <div class="article-row">
       <span class="site-badge">{{ a.site_name }}</span>
       <a class="article-title" href="{{ a.url }}" target="_blank" rel="noopener">{{ a.title }}</a>
-      <span class="article-date">
+      <span class="article-date"
+            {% if a.published_at %}
+            data-datetime="{{ a.published_at.isoformat() if a.published_at is not string else a.published_at }}"
+            data-has-time="true"
+            {% elif a.collected_at %}
+            data-datetime="{{ a.collected_at.isoformat() if a.collected_at is not string else a.collected_at }}"
+            data-has-time="false"
+            {% endif %}>
         {% if a.published_at %}
           {{ a.published_at.strftime('%m/%d %H:%M') if a.published_at is not string else a.published_at[:16] }}
         {% elif a.collected_at %}
@@ -129,6 +136,33 @@ document.addEventListener('DOMContentLoaded', function() {
   document.getElementById('searchOverlay').classList.remove('show');
 });
 {% endif %}
+
+document.addEventListener('DOMContentLoaded', function() {
+  document.querySelectorAll('.article-date[data-datetime]').forEach(function(el) {
+    const raw = el.dataset.datetime;
+    const hasTime = el.dataset.hasTime === 'true';
+
+    if (!raw) return;
+
+    const normalized = /(?:Z|[+-]\d{2}:\d{2})$/.test(raw) ? raw : raw + 'Z';
+    const date = new Date(normalized);
+
+    if (Number.isNaN(date.getTime())) return;
+
+    el.textContent = hasTime
+      ? new Intl.DateTimeFormat(undefined, {
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false,
+        }).format(date)
+      : new Intl.DateTimeFormat(undefined, {
+          month: '2-digit',
+          day: '2-digit',
+        }).format(date);
+  });
+});
 </script>
 </body>
 </html>
