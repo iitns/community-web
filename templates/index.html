@@ -8,10 +8,15 @@
   <style>
     body { background: #f8f9fa; }
     .navbar { background: #fff; border-bottom: 1px solid #dee2e6; }
+    .navbar-top { display: flex; align-items: center; gap: 12px; }
+    .filter-row { display: flex; gap: 8px; flex-wrap: wrap; padding-top: 10px; }
     .article-list { background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
     .article-row { border-bottom: 1px solid #f0f0f0; padding: 10px 16px; display: flex; align-items: center; gap: 10px; }
     .article-row:last-child { border-bottom: none; }
     .site-badge { font-size: 11px; padding: 2px 7px; border-radius: 12px; background: #e9ecef; color: #495057; white-space: nowrap; }
+    .filter-chip { display: inline-block; text-decoration: none; border: 1px solid transparent; }
+    .filter-chip:hover { color: #212529; background: #dee2e6; }
+    .filter-chip.active { background: #212529; color: #fff; }
     .article-title { flex: 1; font-size: 14px; color: #212529; text-decoration: none; }
     .article-title:hover { color: #0d6efd; text-decoration: underline; }
     .article-date { font-size: 11px; color: #adb5bd; white-space: nowrap; }
@@ -24,12 +29,28 @@
 <body>
 
 <nav class="navbar sticky-top px-3 py-2">
-  <a href="/" class="fw-bold fs-5 text-decoration-none text-dark">커뮤니티 최신글</a>
-  <button class="btn btn-link ms-auto p-1" onclick="toggleSearch()">
-    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16">
-      <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.099zm-5.242 1.156a5.5 5.5 0 1 1 0-11 5.5 5.5 0 0 1 0 11z"/>
-    </svg>
-  </button>
+  <div class="w-100">
+    <div class="navbar-top">
+      <a href="/" class="fw-bold fs-5 text-decoration-none text-dark">커뮤니티 최신글</a>
+      <button class="btn btn-link ms-auto p-1" onclick="toggleSearch()">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16">
+          <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.099zm-5.242 1.156a5.5 5.5 0 1 1 0-11 5.5 5.5 0 0 1 0 11z"/>
+        </svg>
+      </button>
+    </div>
+    <div class="filter-row">
+      <a class="site-badge filter-chip {% if not site %}active{% endif %}"
+         href="{% if query %}{{ url_for('search', q=query) }}{% else %}{{ url_for('index') }}{% endif %}">
+        전체
+      </a>
+      {% for site_name in site_names %}
+      <a class="site-badge filter-chip {% if site == site_name %}active{% endif %}"
+         href="{% if query %}{{ url_for('search', q=query, site=site_name) }}{% else %}{{ url_for('index', site=site_name) }}{% endif %}">
+        {{ site_name }}
+      </a>
+      {% endfor %}
+    </div>
+  </div>
 </nav>
 
 <div class="search-overlay" id="searchOverlay" onclick="closeSearchOnBg(event)">
@@ -43,13 +64,9 @@
       </div>
       <select class="form-select form-select-sm" name="site">
         <option value="">전체 사이트</option>
-        <option value="SLR클럽">SLR클럽</option>
-        <option value="뽐뿌">뽐뿌</option>
-        <option value="웃대">웃대</option>
-        <option value="루리웹(유게)">루리웹(유게)</option>
-        <option value="루리웹(유머)">루리웹(유머)</option>
-        <option value="인벤">인벤</option>
-        <option value="보배드림">보배드림</option>
+        {% for site_name in site_names %}
+        <option value="{{ site_name }}" {% if site == site_name %}selected{% endif %}>{{ site_name }}</option>
+        {% endfor %}
       </select>
     </form>
   </div>
@@ -59,6 +76,10 @@
 
   {% if query %}
   <p class="text-muted small mb-2">"{{ query }}" 검색 결과</p>
+  {% endif %}
+
+  {% if site %}
+  <p class="text-muted small mb-2">{{ site }} 필터 적용 중</p>
   {% endif %}
 
   <div class="article-list">
@@ -92,19 +113,22 @@
       <ul class="pagination pagination-sm">
         {% if page > 1 %}
         <li class="page-item">
-          <a class="page-link" href="?{% if query %}q={{ query }}&{% endif %}page={{ page - 1 }}">이전</a>
+          <a class="page-link"
+             href="{% if query %}{{ url_for('search', q=query, site=site, page=page - 1) }}{% else %}{{ url_for('index', site=site, page=page - 1) }}{% endif %}">이전</a>
         </li>
         {% endif %}
 
         {% for p in range([1, page - 4]|max, [total_pages + 1, page + 5]|min) %}
         <li class="page-item {% if p == page %}active{% endif %}">
-          <a class="page-link" href="?{% if query %}q={{ query }}&{% endif %}page={{ p }}">{{ p }}</a>
+          <a class="page-link"
+             href="{% if query %}{{ url_for('search', q=query, site=site, page=p) }}{% else %}{{ url_for('index', site=site, page=p) }}{% endif %}">{{ p }}</a>
         </li>
         {% endfor %}
 
         {% if page < total_pages %}
         <li class="page-item">
-          <a class="page-link" href="?{% if query %}q={{ query }}&{% endif %}page={{ page + 1 }}">다음</a>
+          <a class="page-link"
+             href="{% if query %}{{ url_for('search', q=query, site=site, page=page + 1) }}{% else %}{{ url_for('index', site=site, page=page + 1) }}{% endif %}">다음</a>
         </li>
         {% endif %}
       </ul>

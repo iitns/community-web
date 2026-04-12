@@ -11,6 +11,16 @@ app = Flask(__name__)
 logger = logging.getLogger(__name__)
 
 PAGE_SIZE = 30
+SITE_ORDER = [
+    'SLR클럽',
+    '뽐뿌',
+    '웃대',
+    '루리웹(유게)',
+    '루리웹(유머)',
+    '인벤',
+    '보배드림',
+    '펨코',
+]
 
 PG_CONN = {
     'host':     os.environ.get('PG_HOST', 'postgresql-service'),
@@ -31,25 +41,48 @@ def es():
     return Elasticsearch(ES_HOST)
 
 
+def get_site_names() -> list[str]:
+    with pg() as conn:
+        with conn.cursor() as cur:
+            cur.execute('SELECT DISTINCT site_name FROM articles')
+            site_names = {row[0] for row in cur.fetchall()}
+
+    ordered = [name for name in SITE_ORDER if name in site_names]
+    extras = sorted(site_names - set(ordered))
+    return ordered + extras
+
+
 @app.route('/')
 def index():
     page = max(1, int(request.args.get('page', 1)))
+    site = request.args.get('site', '').strip()
     offset = (page - 1) * PAGE_SIZE
+    site_names = get_site_names()
 
     with pg() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            params = []
+            where = ''
+            if site:
+                where = 'WHERE site_name = %s'
+                params.append(site)
+
             cur.execute(
-                """
+                f"""
                 SELECT site_name, article_id, url, title, published_at, collected_at
                 FROM articles
+                {where}
                 ORDER BY COALESCE(published_at, collected_at) DESC
                 LIMIT %s OFFSET %s
                 """,
-                (PAGE_SIZE, offset),
+                (*params, PAGE_SIZE, offset),
             )
             articles = [dict(r) for r in cur.fetchall()]
 
-            cur.execute('SELECT COUNT(*) FROM articles')
+            cur.execute(
+                f'SELECT COUNT(*) FROM articles {where}',
+                params,
+            )
             total = cur.fetchone()['count']
 
     total_pages = (total + PAGE_SIZE - 1) // PAGE_SIZE
@@ -59,6 +92,8 @@ def index():
         page=page,
         total_pages=total_pages,
         query='',
+        site=site,
+        site_names=site_names,
     )
 
 
@@ -67,6 +102,7 @@ def search():
     query = request.args.get('q', '').strip()
     site = request.args.get('site', '').strip()
     page = max(1, int(request.args.get('page', 1)))
+    site_names = get_site_names()
 
     if not query:
         return index()
@@ -101,6 +137,7 @@ def search():
         total_pages=total_pages,
         query=query,
         site=site,
+        site_names=site_names,
     )
 
 
