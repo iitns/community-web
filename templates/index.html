@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>커뮤니티 최신글</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+  <style>
+    body { background: #f8f9fa; }
+    .navbar { background: #fff; border-bottom: 1px solid #dee2e6; }
+    .article-list { background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+    .article-row { border-bottom: 1px solid #f0f0f0; padding: 10px 16px; display: flex; align-items: center; gap: 10px; }
+    .article-row:last-child { border-bottom: none; }
+    .site-badge { font-size: 11px; padding: 2px 7px; border-radius: 12px; background: #e9ecef; color: #495057; white-space: nowrap; }
+    .article-title { flex: 1; font-size: 14px; color: #212529; text-decoration: none; }
+    .article-title:hover { color: #0d6efd; text-decoration: underline; }
+    .article-date { font-size: 11px; color: #adb5bd; white-space: nowrap; }
+    .search-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 1050; align-items: flex-start; justify-content: center; padding-top: 80px; }
+    .search-overlay.show { display: flex; }
+    .search-box { background: #fff; border-radius: 8px; padding: 24px; width: 100%; max-width: 560px; }
+    .pagination-area { padding: 16px 0; }
+  </style>
+</head>
+<body>
+
+<nav class="navbar sticky-top px-3 py-2">
+  <span class="fw-bold fs-5">커뮤니티 최신글</span>
+  <button class="btn btn-link ms-auto p-1" onclick="toggleSearch()">
+    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16">
+      <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.099zm-5.242 1.156a5.5 5.5 0 1 1 0-11 5.5 5.5 0 0 1 0 11z"/>
+    </svg>
+  </button>
+</nav>
+
+<div class="search-overlay" id="searchOverlay" onclick="closeSearchOnBg(event)">
+  <div class="search-box" onclick="event.stopPropagation()">
+    <h6 class="mb-3">검색</h6>
+    <form action="/search" method="get">
+      <div class="input-group mb-2">
+        <input type="text" class="form-control" name="q" id="searchInput"
+               placeholder="검색어 입력..." value="{{ query }}">
+        <button class="btn btn-primary" type="submit">검색</button>
+      </div>
+      <select class="form-select form-select-sm" name="site">
+        <option value="">전체 사이트</option>
+        <option value="SLR클럽">SLR클럽</option>
+        <option value="뽐뿌">뽐뿌</option>
+        <option value="웃대">웃대</option>
+        <option value="루리웹(유게)">루리웹(유게)</option>
+        <option value="루리웹(유머)">루리웹(유머)</option>
+        <option value="인벤">인벤</option>
+        <option value="보배드림">보배드림</option>
+      </select>
+    </form>
+  </div>
+</div>
+
+<div class="container py-4" style="max-width: 860px;">
+
+  {% if query %}
+  <p class="text-muted small mb-2">"{{ query }}" 검색 결과</p>
+  {% endif %}
+
+  <div class="article-list">
+    {% for a in articles %}
+    <div class="article-row">
+      <span class="site-badge">{{ a.site_name }}</span>
+      <a class="article-title" href="{{ a.url }}" target="_blank" rel="noopener">{{ a.title }}</a>
+      <span class="article-date">
+        {% if a.published_at %}
+          {{ a.published_at.strftime('%m/%d %H:%M') if a.published_at is not string else a.published_at[:16] }}
+        {% elif a.collected_at %}
+          {{ a.collected_at.strftime('%m/%d') if a.collected_at is not string else a.collected_at[:10] }}
+        {% endif %}
+      </span>
+    </div>
+    {% else %}
+    <p class="text-center text-muted py-4">결과가 없습니다.</p>
+    {% endfor %}
+  </div>
+
+  {% if total_pages > 1 %}
+  <div class="pagination-area d-flex justify-content-center">
+    <nav>
+      <ul class="pagination pagination-sm">
+        {% if page > 1 %}
+        <li class="page-item">
+          <a class="page-link" href="?{% if query %}q={{ query }}&{% endif %}page={{ page - 1 }}">이전</a>
+        </li>
+        {% endif %}
+
+        {% for p in range([1, page - 4]|max, [total_pages + 1, page + 5]|min) %}
+        <li class="page-item {% if p == page %}active{% endif %}">
+          <a class="page-link" href="?{% if query %}q={{ query }}&{% endif %}page={{ p }}">{{ p }}</a>
+        </li>
+        {% endfor %}
+
+        {% if page < total_pages %}
+        <li class="page-item">
+          <a class="page-link" href="?{% if query %}q={{ query }}&{% endif %}page={{ page + 1 }}">다음</a>
+        </li>
+        {% endif %}
+      </ul>
+    </nav>
+  </div>
+  {% endif %}
+
+</div>
+
+<script>
+function toggleSearch() {
+  document.getElementById('searchOverlay').classList.toggle('show');
+  document.getElementById('searchInput').focus();
+}
+function closeSearchOnBg(e) {
+  if (e.target === document.getElementById('searchOverlay')) {
+    document.getElementById('searchOverlay').classList.remove('show');
+  }
+}
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') document.getElementById('searchOverlay').classList.remove('show');
+  if (e.key === '/' && document.activeElement.tagName !== 'INPUT') {
+    e.preventDefault();
+    toggleSearch();
+  }
+});
+{% if query %}
+document.addEventListener('DOMContentLoaded', function() {
+  document.getElementById('searchOverlay').classList.remove('show');
+});
+{% endif %}
+</script>
+</body>
+</html>
