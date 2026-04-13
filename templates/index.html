@@ -8,11 +8,12 @@
   <style>
     body { background: #f8f9fa; }
     .navbar { background: #fff; border-bottom: 1px solid #dee2e6; }
-    .navbar-top { display: flex; align-items: center; gap: 12px; position: relative; }
-    .nav-center-label { position: absolute; left: 50%; transform: translateX(-50%); font-size: 13px; color: #6c757d; white-space: nowrap; pointer-events: none; }
+    .navbar-top { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px; min-height: 32px; }
+    .nav-center { min-width: 0; display: flex; justify-content: center; }
+    .nav-center-label { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; font-size: 13px; color: #6c757d; white-space: nowrap; text-align: center; }
     .filter-row { display: flex; gap: 8px; flex-wrap: wrap; padding-top: 10px; }
     .article-list { background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
-    .article-row { border-bottom: 1px solid #f0f0f0; padding: 0 16px; height: 44px; display: flex; align-items: center; gap: 10px; overflow: hidden; }
+    .article-row { border-bottom: 1px solid #f0f0f0; padding: 6px 16px; min-height: 50px; display: flex; align-items: center; gap: 10px; overflow: hidden; }
     .article-row:last-child { border-bottom: none; }
     .site-badge { font-size: 11px; padding: 2px 7px; border-radius: 12px; background: #e9ecef; color: #495057; white-space: nowrap; }
     .filter-chip { display: inline-block; text-decoration: none; border: 1px solid transparent; }
@@ -20,7 +21,9 @@
     .filter-chip.active { background: #212529; color: #fff; }
     .article-title { flex: 1; font-size: 14px; color: #212529; text-decoration: none; }
     .article-title:hover { color: #0d6efd; text-decoration: underline; }
-    .article-date { font-size: 11px; color: #adb5bd; white-space: nowrap; text-align: right; line-height: 1.5; }
+    .article-date { min-width: 56px; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; font-size: 10px; color: #adb5bd; white-space: normal; text-align: right; line-height: 1.05; flex-shrink: 0; }
+    .article-date .date-line,
+    .article-date .time-line { display: block; }
     .search-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 1050; align-items: flex-start; justify-content: center; padding-top: 80px; }
     .search-overlay.show { display: flex; }
     .search-box { background: #fff; border-radius: 8px; padding: 24px; width: 100%; max-width: 560px; }
@@ -37,13 +40,15 @@
   <div class="w-100">
     <div class="navbar-top">
       <a href="/" class="fw-bold fs-5 text-decoration-none text-dark">ㅂㅇㅂ</a>
-      {% if query and site %}
-      <span class="nav-center-label">"{{ query }}" [{{ site }}]</span>
-      {% elif query %}
-      <span class="nav-center-label">"{{ query }}"</span>
-      {% elif site %}
-      <span class="nav-center-label">[{{ site }}]</span>
-      {% endif %}
+      <div class="nav-center">
+        {% if query and site %}
+        <span class="nav-center-label">검색: "{{ query }}" · {{ site_display_names.get(site, site) }}</span>
+        {% elif query %}
+        <span class="nav-center-label">검색: "{{ query }}"</span>
+        {% elif site %}
+        <span class="nav-center-label">필터: {{ site_display_names.get(site, site) }}</span>
+        {% endif %}
+      </div>
       <button class="btn btn-link ms-auto p-1" onclick="toggleSearch()">
         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16">
           <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.099zm-5.242 1.156a5.5 5.5 0 1 1 0-11 5.5 5.5 0 0 1 0 11z"/>
@@ -101,9 +106,10 @@
             data-has-time="false"
             {% endif %}>
         {% if a.published_at %}
-          {{ a.published_at.strftime('%m/%d %H:%M') if a.published_at is not string else a.published_at[:16] }}
+        <span class="date-line">{{ a.published_at.strftime('%m/%d') if a.published_at is not string else a.published_at[5:10] }}</span>
+        <span class="time-line">{{ a.published_at.strftime('%H:%M') if a.published_at is not string else a.published_at[11:16] }}</span>
         {% elif a.collected_at %}
-          {{ a.collected_at.strftime('%m/%d') if a.collected_at is not string else a.collected_at[:10] }}
+        <span class="date-line">{{ a.collected_at.strftime('%m/%d') if a.collected_at is not string else a.collected_at[5:10] }}</span>
         {% endif %}
       </span>
     </div>
@@ -171,6 +177,8 @@ document.addEventListener('DOMContentLoaded', function() {
 {% endif %}
 
 document.addEventListener('DOMContentLoaded', function() {
+  const clientTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
   document.querySelectorAll('.article-date[data-datetime]').forEach(function(el) {
     const raw = el.dataset.datetime;
     const hasTime = el.dataset.hasTime === 'true';
@@ -185,15 +193,30 @@ document.addEventListener('DOMContentLoaded', function() {
     if (hasTime) {
       const datePart = new Intl.DateTimeFormat(undefined, {
         month: '2-digit', day: '2-digit',
+        timeZone: clientTimeZone,
       }).format(date);
       const timePart = new Intl.DateTimeFormat(undefined, {
         hour: '2-digit', minute: '2-digit', hour12: false,
+        timeZone: clientTimeZone,
       }).format(date);
-      el.innerHTML = datePart + '<br>' + timePart;
+      el.innerHTML = '<span class="date-line">' + datePart + '</span><span class="time-line">' + timePart + '</span>';
+      el.title = new Intl.DateTimeFormat(undefined, {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+        timeZone: clientTimeZone,
+        timeZoneName: 'short',
+      }).format(date);
     } else {
-      el.textContent = new Intl.DateTimeFormat(undefined, {
+      const datePart = new Intl.DateTimeFormat(undefined, {
         month: '2-digit', day: '2-digit',
+        timeZone: clientTimeZone,
       }).format(date);
+      el.innerHTML = '<span class="date-line">' + datePart + '</span>';
     }
   });
 });
