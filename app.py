@@ -19,7 +19,6 @@ SITE_ORDER = [
     '뽐뿌',
     '웃대',
     '루리웹(유게)',
-    '루리웹(유머)',
     '인벤',
     '보배드림',
     '펨코',
@@ -27,8 +26,8 @@ SITE_ORDER = [
 
 SITE_DISPLAY_NAMES = {
     '루리웹(유게)': '루리(육)',
-    '루리웹(유머)': '루리(윰)',
 }
+RETIRED_SITE_NAMES = frozenset({'루리웹(유머)'})
 
 PG_CONN = {
     'host':     os.environ.get('PG_HOST', 'postgresql-service'),
@@ -78,6 +77,30 @@ def site_cache_slug(site: str) -> str:
     return site or 'all'
 
 
+def is_retired_site(site: str) -> bool:
+    return site in RETIRED_SITE_NAMES
+
+
+def filter_site_names(site_names: list[str]) -> list[str]:
+    return [site_name for site_name in site_names if not is_retired_site(site_name)]
+
+
+def filter_articles(articles: list[dict]) -> list[dict]:
+    return [
+        article
+        for article in articles
+        if not is_retired_site(article.get('site_name', ''))
+    ]
+
+
+def cached_page_has_retired_articles(payload: dict) -> bool:
+    site = payload.get('site', '')
+    if is_retired_site(site):
+        return True
+
+    return any(is_retired_site(article.get('site_name', '')) for article in payload.get('articles', []))
+
+
 def cache_active_version_key() -> str:
     return f'{CACHE_PREFIX}:active-version'
 
@@ -101,7 +124,11 @@ def fetch_site_names_db() -> list[str]:
     with pg() as conn:
         with conn.cursor() as cur:
             cur.execute('SELECT DISTINCT site_name FROM articles')
-            site_names = {row[0] for row in cur.fetchall()}
+            site_names = {
+                row[0]
+                for row in cur.fetchall()
+                if row[0] and not is_retired_site(row[0])
+            }
 
     ordered = [name for name in SITE_ORDER if name in site_names]
     extras = sorted(site_names - set(ordered))
@@ -117,7 +144,7 @@ def get_site_names() -> list[str]:
             if version:
                 cached = client.get(cache_key(version, 'site-names'))
                 if cached:
-                    return json.loads(cached)
+                    return filter_site_names(json.loads(cached))
         except RedisError as exc:
             logger.warning('Redis site_names read failed: %s', exc)
 
@@ -126,9 +153,16 @@ def get_site_names() -> list[str]:
 
 
 def fetch_articles_page(site: str, page: int, since: datetime | None = None) -> tuple[list[dict], int]:
+    if is_retired_site(site):
+        return [], 0
+
     offset = (page - 1) * PAGE_SIZE
     conditions = []
     params = []
+
+    if RETIRED_SITE_NAMES:
+        conditions.append('NOT (site_name = ANY(%s))')
+        params.append(list(RETIRED_SITE_NAMES))
 
     if site:
         conditions.append('site_name = %s')
@@ -152,7 +186,7 @@ def fetch_articles_page(site: str, page: int, since: datetime | None = None) -> 
                 """,
                 (*params, PAGE_SIZE, offset),
             )
-            articles = [serialize_article(dict(r)) for r in cur.fetchall()]
+            articles = filter_articles([serialize_article(dict(r)) for r in cur.fetchall()])
 
             cur.execute(
                 f'SELECT COUNT(*) FROM articles {where}',
@@ -164,6 +198,16 @@ def fetch_articles_page(site: str, page: int, since: datetime | None = None) -> 
 
 
 def get_cached_recent_page(site: str, page: int) -> dict | None:
+    if is_retired_site(site):
+        return {
+            'articles': [],
+            'page': page,
+            'site': site,
+            'total': 0,
+            'total_pages': 0,
+            'recent_only': True,
+        }
+
     client = cache()
     if client is None:
         return None
@@ -177,7 +221,10 @@ def get_cached_recent_page(site: str, page: int) -> dict | None:
         meta_key = cache_key(version, 'index', site_cache_slug(site), 'meta')
         cached = client.get(page_key)
         if cached:
-            return json.loads(cached)
+            payload = json.loads(cached)
+            if cached_page_has_retired_articles(payload):
+                return None
+            return payload
 
         meta_raw = client.get(meta_key)
         if not meta_raw:
@@ -248,6 +295,9 @@ def search():
     must = [{'multi_match': {'query': query, 'fields': ['title']}}]
     if site:
         must.append({'term': {'site_name': site}})
+    must_not = []
+    if RETIRED_SITE_NAMES:
+        must_not.append({'terms': {'site_name': list(RETIRED_SITE_NAMES)}})
 
     sort = [
         {'published_at': {'order': 'desc', 'missing': '_last'}},
@@ -263,7 +313,7 @@ def search():
         ]
 
     body = {
-        'query': {'bool': {'must': must}},
+        'query': {'bool': {'must': must, 'must_not': must_not}},
         'sort': sort,
         'from': (page - 1) * PAGE_SIZE,
         'size': PAGE_SIZE,
@@ -273,7 +323,7 @@ def search():
         resp = client.search(index=ES_INDEX, body=body)
         hits = resp['hits']['hits']
         total = resp['hits']['total']['value']
-        articles = [h['_source'] for h in hits]
+        articles = filter_articles([h['_source'] for h in hits])
     except Exception as exc:
         logger.error('ES search error: %s', exc)
         articles = []
