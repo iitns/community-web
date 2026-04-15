@@ -8,10 +8,24 @@
   <style>
     body { background: #f8f9fa; }
     .navbar { background: #fff; border-bottom: 1px solid #dee2e6; }
-    .navbar-top { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px; min-height: 32px; }
-    .nav-center { min-width: 0; display: flex; justify-content: center; }
+    .navbar-top { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; min-height: 32px; }
+    .nav-center { min-width: 0; display: flex; justify-content: center; grid-column: 2; }
     .nav-center-label { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; font-size: 13px; color: #6c757d; white-space: nowrap; text-align: center; }
+    .search-inline-form { display: none; min-width: 0; grid-column: 2; }
+    .search-inline-form.show { display: block; }
+    .search-inline-form .input-group { flex-wrap: nowrap; }
+    .search-inline-form .form-control,
+    .search-inline-form .form-select,
+    .search-inline-form .btn { font-size: 14px; }
+    .search-inline-form .site-select { max-width: 136px; }
+    .search-inline-form .sort-select { max-width: 148px; }
+    .search-toggle-btn { color: #212529; }
+    .search-toggle-btn:hover { color: #0d6efd; }
     .filter-row { display: flex; gap: 8px; flex-wrap: wrap; padding-top: 10px; }
+    .filter-row-top { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .filter-links { display: flex; gap: 8px; flex-wrap: wrap; }
+    .sort-toolbar { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+    .sort-toolbar-label { font-size: 12px; color: #6c757d; white-space: nowrap; }
     .article-list { background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
     .article-row { border-bottom: 1px solid #f0f0f0; padding: 6px 16px; min-height: 50px; display: flex; align-items: center; gap: 10px; overflow: hidden; }
     .article-row:last-child { border-bottom: none; }
@@ -24,13 +38,49 @@
     .article-date { min-width: 56px; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; font-size: 10px; color: #adb5bd; white-space: normal; text-align: right; line-height: 1.05; flex-shrink: 0; }
     .article-date .date-line,
     .article-date .time-line { display: block; }
-    .search-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 1050; align-items: flex-start; justify-content: center; padding-top: 80px; }
-    .search-overlay.show { display: flex; }
-    .search-box { background: #fff; border-radius: 8px; padding: 24px; width: 100%; max-width: 560px; }
-    .pagination-area { padding: 16px 0; }
+    .pagination-area { width: 100%; padding: 16px 0; }
+    .pagination-nav { width: 100%; }
+    .pagination-wide {
+      width: 100%;
+      margin-bottom: 0;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .pagination-wide .page-item {
+      flex: 1 1 56px;
+      min-width: 56px;
+    }
+    .pagination-wide .page-link {
+      width: 100%;
+      min-height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 10px 12px;
+      border-radius: 8px;
+      font-size: 15px;
+    }
     .content-wrap { width: 100%; max-width: 860px; margin: 0 auto; padding: 0; }
     @media (min-width: 768px) {
       .content-wrap { padding: 0; }
+    }
+    @media (max-width: 767.98px) {
+      .navbar-top { grid-template-columns: 1fr; align-items: stretch; }
+      .nav-center,
+      .search-inline-form { grid-column: auto; }
+      .nav-center { justify-content: flex-start; }
+      .search-inline-form .input-group { flex-wrap: wrap; }
+      .search-inline-form .site-select,
+      .search-inline-form .sort-select { max-width: none; width: 100%; }
+      .filter-row-top { align-items: stretch; }
+      .sort-toolbar { width: 100%; margin-left: 0; }
+      .sort-toolbar .form-select { width: 100%; }
+      .pagination-wide { gap: 6px; }
+      .pagination-wide .page-item {
+        flex: 1 1 calc(20% - 6px);
+        min-width: calc(20% - 6px);
+      }
     }
   </style>
 </head>
@@ -38,9 +88,9 @@
 
 <nav class="navbar sticky-top px-3 py-2">
   <div class="w-100">
-    <div class="navbar-top">
+    <div class="navbar-top" id="navbarTop">
       <a href="/" class="fw-bold fs-5 text-decoration-none text-dark">ㅂㅇㅂ</a>
-      <div class="nav-center">
+      <div class="nav-center" id="navCenter"{% if query %} style="display: none;"{% endif %}>
         {% if query and site %}
         <span class="nav-center-label">검색: "{{ query }}" · {{ site_display_names.get(site, site) }}</span>
         {% elif query %}
@@ -49,46 +99,61 @@
         <span class="nav-center-label">필터: {{ site_display_names.get(site, site) }}</span>
         {% endif %}
       </div>
-      <button class="btn btn-link ms-auto p-1" onclick="toggleSearch()">
+      <form action="/search" method="get" class="search-inline-form{% if query %} show{% endif %}" id="searchForm">
+        <div class="input-group">
+          <input type="text" class="form-control" name="q" id="searchInput"
+                 placeholder="검색어 입력..." value="{{ query }}">
+          <input type="hidden" name="page" value="1">
+          <select class="form-select site-select" name="site" aria-label="사이트 선택">
+            <option value="">전체 사이트</option>
+            {% for site_name in site_names %}
+            <option value="{{ site_name }}" {% if site == site_name %}selected{% endif %}>{{ site_display_names.get(site_name, site_name) }}</option>
+            {% endfor %}
+          </select>
+          <select class="form-select sort-select" name="sort" aria-label="정렬 선택">
+            <option value="published_desc" {% if sort_order != 'relevance' %}selected{% endif %}>게시 시간순</option>
+            <option value="relevance" {% if sort_order == 'relevance' %}selected{% endif %}>관련도순</option>
+          </select>
+          <button class="btn btn-outline-secondary" type="button" onclick="clearSearch()" aria-label="검색어 지우기">✕</button>
+          <button class="btn btn-primary" type="submit">검색</button>
+        </div>
+      </form>
+      <button class="btn btn-link ms-auto p-1 search-toggle-btn" id="searchToggleBtn" onclick="toggleSearch()" aria-label="검색 열기"{% if query %} style="display: none;"{% endif %}>
         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16">
           <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.099zm-5.242 1.156a5.5 5.5 0 1 1 0-11 5.5 5.5 0 0 1 0 11z"/>
         </svg>
       </button>
     </div>
     <div class="filter-row">
-      <a class="site-badge filter-chip {% if not site %}active{% endif %}"
-         href="{% if query %}{{ url_for('search', q=query) }}{% else %}{{ url_for('index') }}{% endif %}">
-        전체
-      </a>
-      {% for site_name in site_names %}
-      <a class="site-badge filter-chip {% if site == site_name %}active{% endif %}"
-         href="{% if query %}{{ url_for('search', q=query, site=site_name) }}{% else %}{{ url_for('index', site=site_name) }}{% endif %}">
-        {{ site_display_names.get(site_name, site_name) }}
-      </a>
-      {% endfor %}
+      <div class="filter-row-top w-100">
+        <div class="filter-links">
+          <a class="site-badge filter-chip {% if not site %}active{% endif %}"
+             href="{% if query %}{{ url_for('search', q=query, sort=sort_order) }}{% else %}{{ url_for('index') }}{% endif %}">
+            전체
+          </a>
+          {% for site_name in site_names %}
+          <a class="site-badge filter-chip {% if site == site_name %}active{% endif %}"
+             href="{% if query %}{{ url_for('search', q=query, site=site_name, sort=sort_order) }}{% else %}{{ url_for('index', site=site_name) }}{% endif %}">
+            {{ site_display_names.get(site_name, site_name) }}
+          </a>
+          {% endfor %}
+        </div>
+        {% if query %}
+        <form action="/search" method="get" class="sort-toolbar">
+          <span class="sort-toolbar-label">정렬</span>
+          <input type="hidden" name="q" value="{{ query }}">
+          <input type="hidden" name="site" value="{{ site }}">
+          <input type="hidden" name="page" value="1">
+          <select class="form-select form-select-sm" name="sort" onchange="this.form.submit()">
+            <option value="published_desc" {% if sort_order != 'relevance' %}selected{% endif %}>게시 시간순</option>
+            <option value="relevance" {% if sort_order == 'relevance' %}selected{% endif %}>관련도순</option>
+          </select>
+        </form>
+        {% endif %}
+      </div>
     </div>
   </div>
 </nav>
-
-<div class="search-overlay" id="searchOverlay" onclick="closeSearchOnBg(event)">
-  <div class="search-box" onclick="event.stopPropagation()">
-    <h6 class="mb-3">검색</h6>
-    <form action="/search" method="get">
-      <div class="input-group mb-2">
-        <input type="text" class="form-control" name="q" id="searchInput"
-               placeholder="검색어 입력..." value="{{ query }}">
-        <button class="btn btn-outline-secondary" type="button" onclick="clearSearch()">✕</button>
-        <button class="btn btn-primary" type="submit">검색</button>
-      </div>
-      <select class="form-select form-select-sm" name="site">
-        <option value="">전체 사이트</option>
-        {% for site_name in site_names %}
-        <option value="{{ site_name }}" {% if site == site_name %}selected{% endif %}>{{ site_display_names.get(site_name, site_name) }}</option>
-        {% endfor %}
-      </select>
-    </form>
-  </div>
-</div>
 
 <div class="content-wrap">
 
@@ -119,27 +184,27 @@
   </div>
 
   {% if total_pages >= 1 %}
-  <div class="pagination-area d-flex justify-content-center">
-    <nav>
-      <ul class="pagination pagination-sm">
+  <div class="pagination-area">
+    <nav class="pagination-nav" aria-label="페이지 이동">
+      <ul class="pagination pagination-wide">
         {% if page > 1 %}
         <li class="page-item">
           <a class="page-link"
-             href="{% if query %}{{ url_for('search', q=query, site=site, page=page - 1) }}{% else %}{{ url_for('index', site=site, page=page - 1) }}{% endif %}">이전</a>
+             href="{% if query %}{{ url_for('search', q=query, site=site, sort=sort_order, page=page - 1) }}{% else %}{{ url_for('index', site=site, page=page - 1) }}{% endif %}">이전</a>
         </li>
         {% endif %}
 
         {% for p in range([1, page - 4]|max, [total_pages + 1, page + 5]|min) %}
         <li class="page-item {% if p == page %}active{% endif %}">
           <a class="page-link"
-             href="{% if query %}{{ url_for('search', q=query, site=site, page=p) }}{% else %}{{ url_for('index', site=site, page=p) }}{% endif %}">{{ p }}</a>
+             href="{% if query %}{{ url_for('search', q=query, site=site, sort=sort_order, page=p) }}{% else %}{{ url_for('index', site=site, page=p) }}{% endif %}">{{ p }}</a>
         </li>
         {% endfor %}
 
         {% if page < total_pages %}
         <li class="page-item">
           <a class="page-link"
-             href="{% if query %}{{ url_for('search', q=query, site=site, page=page + 1) }}{% else %}{{ url_for('index', site=site, page=page + 1) }}{% endif %}">다음</a>
+             href="{% if query %}{{ url_for('search', q=query, site=site, sort=sort_order, page=page + 1) }}{% else %}{{ url_for('index', site=site, page=page + 1) }}{% endif %}">다음</a>
         </li>
         {% endif %}
       </ul>
@@ -151,30 +216,26 @@
 
 <script>
 function toggleSearch() {
-  document.getElementById('searchOverlay').classList.toggle('show');
+  const form = document.getElementById('searchForm');
+  const navCenter = document.getElementById('navCenter');
+  const toggleBtn = document.getElementById('searchToggleBtn');
+
+  form.classList.add('show');
+  navCenter.style.display = 'none';
+  toggleBtn.style.display = 'none';
   document.getElementById('searchInput').focus();
-}
-function closeSearchOnBg(e) {
-  if (e.target === document.getElementById('searchOverlay')) {
-    document.getElementById('searchOverlay').classList.remove('show');
-  }
 }
 function clearSearch() {
-  document.getElementById('searchInput').value = '';
-  document.getElementById('searchInput').focus();
+  const input = document.getElementById('searchInput');
+  input.value = '';
+  input.focus();
 }
 document.addEventListener('keydown', function(e) {
-  if (e.key === 'Escape') document.getElementById('searchOverlay').classList.remove('show');
   if (e.key === '/' && document.activeElement.tagName !== 'INPUT') {
     e.preventDefault();
     toggleSearch();
   }
 });
-{% if query %}
-document.addEventListener('DOMContentLoaded', function() {
-  document.getElementById('searchOverlay').classList.remove('show');
-});
-{% endif %}
 
 document.addEventListener('DOMContentLoaded', function() {
   const clientTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;

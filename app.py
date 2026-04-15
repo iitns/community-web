@@ -227,6 +227,7 @@ def index():
         total_pages=total_pages,
         query='',
         site=site,
+        sort_order='published_desc',
         site_names=site_names,
         site_display_names=SITE_DISPLAY_NAMES,
     )
@@ -237,6 +238,7 @@ def search():
     query = request.args.get('q', '').strip()
     site = request.args.get('site', '').strip()
     page = max(1, int(request.args.get('page', 1)))
+    sort_order = request.args.get('sort', 'published_desc').strip() or 'published_desc'
     site_names = get_site_names()
 
     if not query:
@@ -247,9 +249,22 @@ def search():
     if site:
         must.append({'term': {'site_name': site}})
 
+    sort = [
+        {'published_at': {'order': 'desc', 'missing': '_last'}},
+        {'collected_at': {'order': 'desc', 'missing': '_last'}},
+        {'_score': 'desc'},
+    ]
+
+    if sort_order == 'relevance':
+        sort = [
+            {'_score': 'desc'},
+            {'published_at': {'order': 'desc', 'missing': '_last'}},
+            {'collected_at': {'order': 'desc', 'missing': '_last'}},
+        ]
+
     body = {
         'query': {'bool': {'must': must}},
-        'sort': [{'_score': 'desc'}, {'collected_at': 'desc'}],
+        'sort': sort,
         'from': (page - 1) * PAGE_SIZE,
         'size': PAGE_SIZE,
     }
@@ -272,6 +287,7 @@ def search():
         total_pages=total_pages,
         query=query,
         site=site,
+        sort_order=sort_order,
         site_names=site_names,
         site_display_names=SITE_DISPLAY_NAMES,
     )
