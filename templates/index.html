@@ -105,20 +105,37 @@
     }
     .search-clear-btn.show { display: inline-flex; }
     .search-clear-btn:hover { background: var(--clear-btn-hover-bg); color: var(--text-primary); }
-    .search-inline-form .site-select { flex: 0 0 136px; max-width: 136px; }
     .search-inline-form .sort-select { flex: 0 0 148px; max-width: 148px; }
     .search-submit-btn { flex: 0 0 auto; }
-    .nav-actions { grid-area: actions; display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+    .nav-actions { grid-area: actions; display: flex; align-items: center; justify-content: flex-end; gap: 6px; position: relative; }
+    .filter-toggle-btn,
     .search-toggle-btn,
     .theme-toggle-btn { color: var(--control-color); }
+    .filter-toggle-btn:hover,
     .search-toggle-btn:hover,
     .theme-toggle-btn:hover { color: var(--control-hover-color); }
     .theme-icon { display: none; }
     html[data-theme="light"] .theme-icon-moon,
     html[data-theme="dark"] .theme-icon-sun { display: block; }
-    .filter-row { display: flex; gap: 8px; flex-wrap: wrap; padding-top: 10px; }
-    .filter-row-top { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
-    .filter-links { display: flex; gap: 8px; flex-wrap: wrap; }
+    .filter-panel {
+      position: absolute;
+      top: calc(100% + 10px);
+      right: 0;
+      width: min(320px, calc(100vw - 24px));
+      display: none;
+      background: var(--surface-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      box-shadow: var(--shadow-color);
+      padding: 14px;
+      z-index: 1000;
+    }
+    .filter-panel.show { display: block; }
+    .filter-panel-form { display: flex; flex-direction: column; gap: 14px; }
+    .filter-section { display: flex; flex-direction: column; gap: 8px; }
+    .filter-section-title { font-size: 12px; color: var(--text-secondary); font-weight: 600; }
+    .filter-panel-actions { display: flex; gap: 8px; justify-content: flex-end; }
+    .filter-switch { display: flex; align-items: center; gap: 10px; }
     .sort-toolbar { display: flex; align-items: center; gap: 8px; margin-left: auto; }
     .sort-toolbar-label { font-size: 12px; color: var(--text-secondary); white-space: nowrap; }
     .article-list { background: var(--surface-bg); border-radius: 8px; box-shadow: var(--shadow-color); }
@@ -173,16 +190,19 @@
       .nav-center { justify-content: flex-start; }
       .search-inline-controls { flex-wrap: wrap; }
       .search-input-wrap,
-      .search-inline-form .site-select,
       .search-inline-form .sort-select,
       .search-submit-btn { max-width: none; width: 100%; flex-basis: 100%; }
-      .filter-row-top { align-items: stretch; }
       .sort-toolbar { width: 100%; margin-left: 0; }
       .sort-toolbar .form-select { width: 100%; }
       .pagination-wide { gap: 6px; }
       .pagination-wide .page-item {
         flex: 1 1 calc(20% - 6px);
         min-width: calc(20% - 6px);
+      }
+      .filter-panel {
+        position: fixed;
+        top: 60px;
+        right: 12px;
       }
     }
   </style>
@@ -194,16 +214,26 @@
     <div class="navbar-top" id="navbarTop">
       <a href="/" class="brand-link fw-bold fs-5 text-decoration-none">ㅂㅇㅂ</a>
       <div class="nav-center" id="navCenter"{% if query %} style="display: none;"{% endif %}>
-        {% if query and site %}
+        {% if query and site and include_nsfw %}
+        <span class="nav-center-label">검색: "{{ query }}" · {{ site_display_names.get(site, site) }} · 19금 포함</span>
+        {% elif query and site %}
         <span class="nav-center-label">검색: "{{ query }}" · {{ site_display_names.get(site, site) }}</span>
+        {% elif query and include_nsfw %}
+        <span class="nav-center-label">검색: "{{ query }}" · 19금 포함</span>
         {% elif query %}
         <span class="nav-center-label">검색: "{{ query }}"</span>
+        {% elif site and include_nsfw %}
+        <span class="nav-center-label">필터: {{ site_display_names.get(site, site) }} · 19금 포함</span>
         {% elif site %}
         <span class="nav-center-label">필터: {{ site_display_names.get(site, site) }}</span>
+        {% elif include_nsfw %}
+        <span class="nav-center-label">필터: 19금 포함</span>
         {% endif %}
       </div>
       <form action="/search" method="get" class="search-inline-form{% if query %} show{% endif %}" id="searchForm">
         <input type="hidden" name="page" value="1">
+        <input type="hidden" name="site" value="{{ site }}">
+        <input type="hidden" name="include_nsfw" value="{{ '1' if include_nsfw else '0' }}">
         <div class="search-inline-controls">
           <div class="search-input-wrap">
             <input type="text" class="form-control" name="q" id="searchInput"
@@ -214,12 +244,6 @@
               </svg>
             </button>
           </div>
-          <select class="form-select site-select" name="site" aria-label="사이트 선택">
-            <option value="">전체 사이트</option>
-            {% for site_name in site_names %}
-            <option value="{{ site_name }}" {% if site == site_name %}selected{% endif %}>{{ site_display_names.get(site_name, site_name) }}</option>
-            {% endfor %}
-          </select>
           <select class="form-select sort-select" name="sort" aria-label="정렬 선택">
             <option value="published_desc" {% if sort_order != 'relevance' %}selected{% endif %}>게시 시간순</option>
             <option value="relevance" {% if sort_order == 'relevance' %}selected{% endif %}>관련도순</option>
@@ -228,6 +252,11 @@
         </div>
       </form>
       <div class="nav-actions">
+        <button class="btn btn-link p-1 filter-toggle-btn" id="filterToggleBtn" type="button" onclick="toggleFilterPanel()" aria-label="필터 열기" aria-expanded="false" aria-controls="filterPanel">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16">
+            <path d="M6 10.117V15l4-2.5v-2.383l4.447-5.929A1 1 0 0 0 13.647 2H2.353a1 1 0 0 0-.8 1.588L6 10.117z"/>
+          </svg>
+        </button>
         <button class="btn btn-link p-1 search-toggle-btn" id="searchToggleBtn" type="button" onclick="toggleSearch()" aria-label="검색 열기"{% if query %} style="display: none;"{% endif %}>
           <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16">
             <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.099zm-5.242 1.156a5.5 5.5 0 1 1 0-11 5.5 5.5 0 0 1 0 11z"/>
@@ -242,34 +271,36 @@
             <path d="M12 2.75V5.25M12 18.75V21.25M21.25 12H18.75M5.25 12H2.75M18.54 5.46L16.77 7.23M7.23 16.77L5.46 18.54M18.54 18.54L16.77 16.77M7.23 7.23L5.46 5.46" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
           </svg>
         </button>
-      </div>
-    </div>
-    <div class="filter-row">
-      <div class="filter-row-top w-100">
-        <div class="filter-links">
-          <a class="site-badge filter-chip {% if not site %}active{% endif %}"
-             href="{% if query %}{{ url_for('search', q=query, sort=sort_order) }}{% else %}{{ url_for('index') }}{% endif %}">
-            전체
-          </a>
-          {% for site_name in site_names %}
-          <a class="site-badge filter-chip {% if site == site_name %}active{% endif %}"
-             href="{% if query %}{{ url_for('search', q=query, site=site_name, sort=sort_order) }}{% else %}{{ url_for('index', site=site_name) }}{% endif %}">
-            {{ site_display_names.get(site_name, site_name) }}
-          </a>
-          {% endfor %}
+        <div class="filter-panel" id="filterPanel">
+          <form action="{{ url_for(current_endpoint) }}" method="get" class="filter-panel-form">
+            {% if query %}
+            <input type="hidden" name="q" value="{{ query }}">
+            <input type="hidden" name="sort" value="{{ sort_order }}">
+            {% endif %}
+            <input type="hidden" name="page" value="1">
+            <input type="hidden" name="include_nsfw" id="includeNsfwInput" value="{{ '1' if include_nsfw else '0' }}">
+            <div class="filter-section">
+              <label class="filter-section-title" for="siteFilterSelect">커뮤니티 필터</label>
+              <select class="form-select" name="site" id="siteFilterSelect" aria-label="커뮤니티 필터">
+                <option value="">전체 커뮤니티</option>
+                {% for site_name in site_names %}
+                <option value="{{ site_name }}" {% if site == site_name %}selected{% endif %}>{{ site_display_names.get(site_name, site_name) }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="filter-section">
+              <span class="filter-section-title">19금 필터</span>
+              <label class="filter-switch" for="includeNsfwCheckbox">
+                <input class="form-check-input mt-0" type="checkbox" id="includeNsfwCheckbox" {% if include_nsfw %}checked{% endif %}>
+                <span>19금 게시물 포함</span>
+              </label>
+            </div>
+            <div class="filter-panel-actions">
+              <a class="btn btn-outline-secondary" href="{% if current_endpoint == 'search' %}{{ url_for('search', q=query, sort=sort_order, page=1, site='', include_nsfw=0) }}{% else %}{{ url_for('index', page=1, site='', include_nsfw=0) }}{% endif %}">초기화</a>
+              <button class="btn btn-primary" type="submit">적용</button>
+            </div>
+          </form>
         </div>
-        {% if query %}
-        <form action="/search" method="get" class="sort-toolbar">
-          <span class="sort-toolbar-label">정렬</span>
-          <input type="hidden" name="q" value="{{ query }}">
-          <input type="hidden" name="site" value="{{ site }}">
-          <input type="hidden" name="page" value="1">
-          <select class="form-select form-select-sm" name="sort" onchange="this.form.submit()">
-            <option value="published_desc" {% if sort_order != 'relevance' %}selected{% endif %}>게시 시간순</option>
-            <option value="relevance" {% if sort_order == 'relevance' %}selected{% endif %}>관련도순</option>
-          </select>
-        </form>
-        {% endif %}
       </div>
     </div>
   </div>
@@ -310,21 +341,21 @@
         {% if page > 1 %}
         <li class="page-item">
           <a class="page-link"
-             href="{% if query %}{{ url_for('search', q=query, site=site, sort=sort_order, page=page - 1) }}{% else %}{{ url_for('index', site=site, page=page - 1) }}{% endif %}">이전</a>
+             href="{% if query %}{{ url_for('search', q=query, site=site, sort=sort_order, include_nsfw='1' if include_nsfw else '0', page=page - 1) }}{% else %}{{ url_for('index', site=site, include_nsfw='1' if include_nsfw else '0', page=page - 1) }}{% endif %}">이전</a>
         </li>
         {% endif %}
 
         {% for p in range([1, page - 4]|max, [total_pages + 1, page + 5]|min) %}
         <li class="page-item {% if p == page %}active{% endif %}">
           <a class="page-link"
-             href="{% if query %}{{ url_for('search', q=query, site=site, sort=sort_order, page=p) }}{% else %}{{ url_for('index', site=site, page=p) }}{% endif %}">{{ p }}</a>
+             href="{% if query %}{{ url_for('search', q=query, site=site, sort=sort_order, include_nsfw='1' if include_nsfw else '0', page=p) }}{% else %}{{ url_for('index', site=site, include_nsfw='1' if include_nsfw else '0', page=p) }}{% endif %}">{{ p }}</a>
         </li>
         {% endfor %}
 
         {% if page < total_pages %}
         <li class="page-item">
           <a class="page-link"
-             href="{% if query %}{{ url_for('search', q=query, site=site, sort=sort_order, page=page + 1) }}{% else %}{{ url_for('index', site=site, page=page + 1) }}{% endif %}">다음</a>
+             href="{% if query %}{{ url_for('search', q=query, site=site, sort=sort_order, include_nsfw='1' if include_nsfw else '0', page=page + 1) }}{% else %}{{ url_for('index', site=site, include_nsfw='1' if include_nsfw else '0', page=page + 1) }}{% endif %}">다음</a>
         </li>
         {% endif %}
       </ul>
@@ -374,10 +405,32 @@ function toggleSearch() {
   const navCenter = document.getElementById('navCenter');
   const toggleBtn = document.getElementById('searchToggleBtn');
 
+  closeFilterPanel();
   form.classList.add('show');
   navCenter.style.display = 'none';
   toggleBtn.style.display = 'none';
   document.getElementById('searchInput').focus();
+}
+
+function toggleFilterPanel() {
+  const panel = document.getElementById('filterPanel');
+  const toggleBtn = document.getElementById('filterToggleBtn');
+
+  if (!panel || !toggleBtn) return;
+
+  const nextState = !panel.classList.contains('show');
+  panel.classList.toggle('show', nextState);
+  toggleBtn.setAttribute('aria-expanded', nextState ? 'true' : 'false');
+}
+
+function closeFilterPanel() {
+  const panel = document.getElementById('filterPanel');
+  const toggleBtn = document.getElementById('filterToggleBtn');
+
+  if (!panel || !toggleBtn) return;
+
+  panel.classList.remove('show');
+  toggleBtn.setAttribute('aria-expanded', 'false');
 }
 
 function updateClearButton() {
@@ -396,6 +449,10 @@ function clearSearch() {
 }
 
 document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') {
+    closeFilterPanel();
+  }
+
   if (e.key === '/' && document.activeElement.tagName !== 'INPUT') {
     e.preventDefault();
     toggleSearch();
@@ -410,6 +467,25 @@ document.addEventListener('DOMContentLoaded', function() {
     searchInput.addEventListener('input', updateClearButton);
     updateClearButton();
   }
+
+  const includeNsfwCheckbox = document.getElementById('includeNsfwCheckbox');
+  const includeNsfwInput = document.getElementById('includeNsfwInput');
+
+  if (includeNsfwCheckbox && includeNsfwInput) {
+    includeNsfwCheckbox.addEventListener('change', function() {
+      includeNsfwInput.value = includeNsfwCheckbox.checked ? '1' : '0';
+    });
+  }
+
+  document.addEventListener('click', function(event) {
+    const panel = document.getElementById('filterPanel');
+    const toggleBtn = document.getElementById('filterToggleBtn');
+
+    if (!panel || !toggleBtn || !panel.classList.contains('show')) return;
+    if (panel.contains(event.target) || toggleBtn.contains(event.target)) return;
+
+    closeFilterPanel();
+  });
 
   const clientTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 

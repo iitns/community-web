@@ -6,7 +6,7 @@ from datetime import datetime
 import psycopg2
 import psycopg2.extras
 from elasticsearch import Elasticsearch
-from flask import Flask, render_template, request
+from flask import Flask, make_response, render_template, request
 from redis import Redis
 from redis.exceptions import RedisError
 
@@ -42,6 +42,8 @@ REDIS_HOST = os.environ.get('REDIS_HOST', '')
 REDIS_PORT = int(os.environ.get('REDIS_PORT', 6379))
 REDIS_DB = int(os.environ.get('REDIS_DB', 0))
 CACHE_PREFIX = 'community-web:recent'
+FILTER_COOKIE_NAME = 'community-web-filters'
+FILTER_COOKIE_MAX_AGE = 60 * 60 * 24 * 365
 
 _redis_client = None
 
@@ -91,6 +93,65 @@ def filter_articles(articles: list[dict]) -> list[dict]:
         for article in articles
         if not is_retired_site(article.get('site_name', ''))
     ]
+
+
+def parse_bool(value: str | bool | None, default: bool = False) -> bool:
+    if value is None:
+        return default
+
+    if isinstance(value, bool):
+        return value
+
+    return value.strip().lower() in {'1', 'true', 'yes', 'on'}
+
+
+def load_filter_preferences() -> dict:
+    raw = request.cookies.get(FILTER_COOKIE_NAME, '')
+    if not raw:
+        return {}
+
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
+
+    if not isinstance(data, dict):
+        return {}
+
+    return data
+
+
+def resolve_filters(site_names: list[str]) -> tuple[str, bool]:
+    saved = load_filter_preferences()
+
+    site = request.args.get('site')
+    if site is None:
+        site = str(saved.get('site', '')).strip()
+    else:
+        site = site.strip()
+
+    if site and site not in site_names:
+        site = ''
+
+    include_nsfw_arg = request.args.get('include_nsfw')
+    if include_nsfw_arg is None:
+        include_nsfw = parse_bool(saved.get('include_nsfw'), default=False)
+    else:
+        include_nsfw = parse_bool(include_nsfw_arg, default=False)
+
+    return site, include_nsfw
+
+
+def render_with_filter_cookie(template_name: str, *, site: str, include_nsfw: bool, **context):
+    response = make_response(render_template(template_name, site=site, include_nsfw=include_nsfw, **context))
+    response.set_cookie(
+        FILTER_COOKIE_NAME,
+        json.dumps({'site': site, 'include_nsfw': include_nsfw}, separators=(',', ':')),
+        max_age=FILTER_COOKIE_MAX_AGE,
+        httponly=False,
+        samesite='Lax',
+    )
+    return response
 
 
 def cached_page_has_retired_articles(payload: dict) -> bool:
@@ -152,7 +213,7 @@ def get_site_names() -> list[str]:
     return site_names
 
 
-def fetch_articles_page(site: str, page: int, since: datetime | None = None) -> tuple[list[dict], int]:
+def fetch_articles_page(site: str, page: int, since: datetime | None = None, include_nsfw: bool = False) -> tuple[list[dict], int]:
     if is_retired_site(site):
         return [], 0
 
@@ -171,6 +232,9 @@ def fetch_articles_page(site: str, page: int, since: datetime | None = None) -> 
     if since:
         conditions.append('COALESCE(published_at, collected_at) >= %s')
         params.append(since)
+
+    if not include_nsfw:
+        conditions.append('NOT COALESCE(is_nsfw, FALSE)')
 
     where = f"WHERE {' AND '.join(conditions)}" if conditions else ''
 
@@ -197,7 +261,7 @@ def fetch_articles_page(site: str, page: int, since: datetime | None = None) -> 
     return articles, total
 
 
-def get_cached_recent_page(site: str, page: int) -> dict | None:
+def get_cached_recent_page(site: str, page: int, include_nsfw: bool = False) -> dict | None:
     if is_retired_site(site):
         return {
             'articles': [],
@@ -207,6 +271,9 @@ def get_cached_recent_page(site: str, page: int) -> dict | None:
             'total_pages': 0,
             'recent_only': True,
         }
+
+    if not include_nsfw:
+        return None
 
     client = cache()
     if client is None:
@@ -256,48 +323,53 @@ def get_cached_recent_page(site: str, page: int) -> dict | None:
 @app.route('/')
 def index():
     page = max(1, int(request.args.get('page', 1)))
-    site = request.args.get('site', '').strip()
     site_names = get_site_names()
-    cached = get_cached_recent_page(site, page)
+    site, include_nsfw = resolve_filters(site_names)
+    cached = get_cached_recent_page(site, page, include_nsfw=include_nsfw)
 
     if cached:
         articles = cached['articles']
         total_pages = cached['total_pages']
     else:
-        articles, total = fetch_articles_page(site=site, page=page)
+        articles, total = fetch_articles_page(site=site, page=page, include_nsfw=include_nsfw)
         total_pages = (total + PAGE_SIZE - 1) // PAGE_SIZE
 
-    return render_template(
+    return render_with_filter_cookie(
         'index.html',
         articles=articles,
         page=page,
         total_pages=total_pages,
         query='',
-        site=site,
+        current_endpoint='index',
         sort_order='published_desc',
         site_names=site_names,
         site_display_names=SITE_DISPLAY_NAMES,
+        site=site,
+        include_nsfw=include_nsfw,
     )
 
 
 @app.route('/search')
 def search():
     query = request.args.get('q', '').strip()
-    site = request.args.get('site', '').strip()
     page = max(1, int(request.args.get('page', 1)))
     sort_order = request.args.get('sort', 'published_desc').strip() or 'published_desc'
     site_names = get_site_names()
+    site, include_nsfw = resolve_filters(site_names)
 
     if not query:
         return index()
 
     client = es()
     must = [{'multi_match': {'query': query, 'fields': ['title']}}]
+    filters = []
     if site:
-        must.append({'term': {'site_name': site}})
+        filters.append({'term': {'site_name': site}})
     must_not = []
     if RETIRED_SITE_NAMES:
         must_not.append({'terms': {'site_name': list(RETIRED_SITE_NAMES)}})
+    if not include_nsfw:
+        must_not.append({'term': {'is_nsfw': True}})
 
     sort = [
         {'published_at': {'order': 'desc', 'missing': '_last'}},
@@ -313,7 +385,7 @@ def search():
         ]
 
     body = {
-        'query': {'bool': {'must': must, 'must_not': must_not}},
+        'query': {'bool': {'must': must, 'filter': filters, 'must_not': must_not}},
         'sort': sort,
         'from': (page - 1) * PAGE_SIZE,
         'size': PAGE_SIZE,
@@ -330,16 +402,18 @@ def search():
         total = 0
 
     total_pages = (total + PAGE_SIZE - 1) // PAGE_SIZE
-    return render_template(
+    return render_with_filter_cookie(
         'index.html',
         articles=articles,
         page=page,
         total_pages=total_pages,
         query=query,
-        site=site,
+        current_endpoint='search',
         sort_order=sort_order,
         site_names=site_names,
         site_display_names=SITE_DISPLAY_NAMES,
+        site=site,
+        include_nsfw=include_nsfw,
     )
 
 
