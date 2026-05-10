@@ -2,6 +2,7 @@ import os
 import logging
 import json
 from datetime import datetime
+from urllib.parse import urlencode
 
 import psycopg2
 import psycopg2.extras
@@ -75,8 +76,8 @@ def cache():
     return _redis_client
 
 
-def site_cache_slug(site: str) -> str:
-    return site or 'all'
+def site_cache_slug(sites: list[str]) -> str:
+    return '__'.join(sites) if sites else 'all'
 
 
 def is_retired_site(site: str) -> bool:
@@ -121,17 +122,38 @@ def load_filter_preferences() -> dict:
     return data
 
 
-def resolve_filters(site_names: list[str]) -> tuple[str, bool]:
-    saved = load_filter_preferences()
+def normalize_selected_sites(site_names: list[str], selected_sites: list[str]) -> list[str]:
+    seen = set()
+    normalized = []
 
-    site = request.args.get('site')
-    if site is None:
-        site = str(saved.get('site', '')).strip()
-    else:
+    for site in selected_sites:
         site = site.strip()
+        if not site or site not in site_names or site in seen:
+            continue
+        seen.add(site)
+        normalized.append(site)
 
-    if site and site not in site_names:
-        site = ''
+    return normalized
+
+
+def resolve_filters(site_names: list[str]) -> tuple[list[str], bool]:
+    saved = load_filter_preferences()
+    filters_applied = request.args.get('filters_applied') == '1'
+    selected_sites = request.args.getlist('site')
+    if not selected_sites:
+        single_site = request.args.get('site')
+        if single_site is not None:
+            selected_sites = [single_site]
+
+    if not selected_sites and not filters_applied:
+        saved_sites = saved.get('sites', [])
+        if isinstance(saved_sites, list):
+            selected_sites = [str(site) for site in saved_sites]
+        else:
+            legacy_site = str(saved.get('site', '')).strip()
+            selected_sites = [legacy_site] if legacy_site else []
+
+    selected_sites = normalize_selected_sites(site_names, selected_sites)
 
     include_nsfw_arg = request.args.get('include_nsfw')
     if include_nsfw_arg is None:
@@ -139,14 +161,23 @@ def resolve_filters(site_names: list[str]) -> tuple[str, bool]:
     else:
         include_nsfw = parse_bool(include_nsfw_arg, default=False)
 
-    return site, include_nsfw
+    return selected_sites, include_nsfw
 
 
-def render_with_filter_cookie(template_name: str, *, site: str, include_nsfw: bool, **context):
-    response = make_response(render_template(template_name, site=site, include_nsfw=include_nsfw, **context))
+def render_with_filter_cookie(template_name: str, *, selected_sites: list[str], include_nsfw: bool, **context):
+    filter_query = urlencode({'site': selected_sites, 'include_nsfw': '1' if include_nsfw else '0'}, doseq=True)
+    response = make_response(
+        render_template(
+            template_name,
+            selected_sites=selected_sites,
+            include_nsfw=include_nsfw,
+            filter_query=filter_query,
+            **context,
+        )
+    )
     response.set_cookie(
         FILTER_COOKIE_NAME,
-        json.dumps({'site': site, 'include_nsfw': include_nsfw}, separators=(',', ':')),
+        json.dumps({'sites': selected_sites, 'include_nsfw': include_nsfw}, separators=(',', ':')),
         max_age=FILTER_COOKIE_MAX_AGE,
         httponly=False,
         samesite='Lax',
@@ -155,8 +186,12 @@ def render_with_filter_cookie(template_name: str, *, site: str, include_nsfw: bo
 
 
 def cached_page_has_retired_articles(payload: dict) -> bool:
-    site = payload.get('site', '')
-    if is_retired_site(site):
+    for site in payload.get('sites', []):
+        if is_retired_site(site):
+            return True
+
+    legacy_site = payload.get('site', '')
+    if is_retired_site(legacy_site):
         return True
 
     return any(is_retired_site(article.get('site_name', '')) for article in payload.get('articles', []))
@@ -213,8 +248,8 @@ def get_site_names() -> list[str]:
     return site_names
 
 
-def fetch_articles_page(site: str, page: int, since: datetime | None = None, include_nsfw: bool = False) -> tuple[list[dict], int]:
-    if is_retired_site(site):
+def fetch_articles_page(selected_sites: list[str], page: int, since: datetime | None = None, include_nsfw: bool = False) -> tuple[list[dict], int]:
+    if any(is_retired_site(site) for site in selected_sites):
         return [], 0
 
     offset = (page - 1) * PAGE_SIZE
@@ -225,9 +260,9 @@ def fetch_articles_page(site: str, page: int, since: datetime | None = None, inc
         conditions.append('NOT (site_name = ANY(%s))')
         params.append(list(RETIRED_SITE_NAMES))
 
-    if site:
-        conditions.append('site_name = %s')
-        params.append(site)
+    if selected_sites:
+        conditions.append('site_name = ANY(%s)')
+        params.append(selected_sites)
 
     if since:
         conditions.append('COALESCE(published_at, collected_at) >= %s')
@@ -261,16 +296,19 @@ def fetch_articles_page(site: str, page: int, since: datetime | None = None, inc
     return articles, total
 
 
-def get_cached_recent_page(site: str, page: int, include_nsfw: bool = False) -> dict | None:
-    if is_retired_site(site):
+def get_cached_recent_page(selected_sites: list[str], page: int, include_nsfw: bool = False) -> dict | None:
+    if any(is_retired_site(site) for site in selected_sites):
         return {
             'articles': [],
             'page': page,
-            'site': site,
+            'sites': selected_sites,
             'total': 0,
             'total_pages': 0,
             'recent_only': True,
         }
+
+    if len(selected_sites) > 1:
+        return None
 
     if not include_nsfw:
         return None
@@ -284,8 +322,8 @@ def get_cached_recent_page(site: str, page: int, include_nsfw: bool = False) -> 
         if not version:
             return None
 
-        page_key = cache_key(version, 'index', site_cache_slug(site), 'page', str(page))
-        meta_key = cache_key(version, 'index', site_cache_slug(site), 'meta')
+        page_key = cache_key(version, 'index', site_cache_slug(selected_sites), 'page', str(page))
+        meta_key = cache_key(version, 'index', site_cache_slug(selected_sites), 'meta')
         cached = client.get(page_key)
         if cached:
             payload = json.loads(cached)
@@ -308,7 +346,7 @@ def get_cached_recent_page(site: str, page: int, include_nsfw: bool = False) -> 
             return {
                 'articles': [],
                 'page': 1,
-                'site': site,
+                'sites': selected_sites,
                 'total': 0,
                 'total_pages': 0,
                 'recent_only': True,
@@ -324,14 +362,14 @@ def get_cached_recent_page(site: str, page: int, include_nsfw: bool = False) -> 
 def index():
     page = max(1, int(request.args.get('page', 1)))
     site_names = get_site_names()
-    site, include_nsfw = resolve_filters(site_names)
-    cached = get_cached_recent_page(site, page, include_nsfw=include_nsfw)
+    selected_sites, include_nsfw = resolve_filters(site_names)
+    cached = get_cached_recent_page(selected_sites, page, include_nsfw=include_nsfw)
 
     if cached:
         articles = cached['articles']
         total_pages = cached['total_pages']
     else:
-        articles, total = fetch_articles_page(site=site, page=page, include_nsfw=include_nsfw)
+        articles, total = fetch_articles_page(selected_sites=selected_sites, page=page, include_nsfw=include_nsfw)
         total_pages = (total + PAGE_SIZE - 1) // PAGE_SIZE
 
     return render_with_filter_cookie(
@@ -344,7 +382,7 @@ def index():
         sort_order='published_desc',
         site_names=site_names,
         site_display_names=SITE_DISPLAY_NAMES,
-        site=site,
+        selected_sites=selected_sites,
         include_nsfw=include_nsfw,
     )
 
@@ -355,7 +393,7 @@ def search():
     page = max(1, int(request.args.get('page', 1)))
     sort_order = request.args.get('sort', 'published_desc').strip() or 'published_desc'
     site_names = get_site_names()
-    site, include_nsfw = resolve_filters(site_names)
+    selected_sites, include_nsfw = resolve_filters(site_names)
 
     if not query:
         return index()
@@ -363,8 +401,8 @@ def search():
     client = es()
     must = [{'multi_match': {'query': query, 'fields': ['title']}}]
     filters = []
-    if site:
-        filters.append({'term': {'site_name': site}})
+    if selected_sites:
+        filters.append({'terms': {'site_name': selected_sites}})
     must_not = []
     if RETIRED_SITE_NAMES:
         must_not.append({'terms': {'site_name': list(RETIRED_SITE_NAMES)}})
@@ -412,7 +450,7 @@ def search():
         sort_order=sort_order,
         site_names=site_names,
         site_display_names=SITE_DISPLAY_NAMES,
-        site=site,
+        selected_sites=selected_sites,
         include_nsfw=include_nsfw,
     )
 

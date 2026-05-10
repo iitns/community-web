@@ -136,6 +136,15 @@
     .filter-section-title { font-size: 12px; color: var(--text-secondary); font-weight: 600; }
     .filter-panel-actions { display: flex; gap: 8px; justify-content: flex-end; }
     .filter-switch { display: flex; align-items: center; gap: 10px; }
+    .filter-site-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-height: 240px;
+      overflow-y: auto;
+      padding-right: 2px;
+    }
+    .filter-site-option { display: flex; align-items: center; gap: 10px; }
     .sort-toolbar { display: flex; align-items: center; gap: 8px; margin-left: auto; }
     .sort-toolbar-label { font-size: 12px; color: var(--text-secondary); white-space: nowrap; }
     .article-list { background: var(--surface-bg); border-radius: 8px; box-shadow: var(--shadow-color); }
@@ -211,29 +220,33 @@
 
 <nav class="navbar sticky-top px-3 py-2">
   <div class="w-100">
+    {% set selected_site_count = selected_sites|length %}
+    {% set selected_site_label = '전체 커뮤니티' if not selected_sites else site_display_names.get(selected_sites[0], selected_sites[0]) if selected_site_count == 1 else selected_sites|length ~ '개 커뮤니티' %}
     <div class="navbar-top" id="navbarTop">
       <a href="/" class="brand-link fw-bold fs-5 text-decoration-none">ㅂㅇㅂ</a>
       <div class="nav-center" id="navCenter"{% if query %} style="display: none;"{% endif %}>
-        {% if query and site and include_nsfw %}
-        <span class="nav-center-label">검색: "{{ query }}" · {{ site_display_names.get(site, site) }} · 19금 포함</span>
-        {% elif query and site %}
-        <span class="nav-center-label">검색: "{{ query }}" · {{ site_display_names.get(site, site) }}</span>
+        {% if query and selected_sites and include_nsfw %}
+        <span class="nav-center-label">검색: "{{ query }}" · {{ selected_site_label }} · 19금 포함</span>
+        {% elif query and selected_sites %}
+        <span class="nav-center-label">검색: "{{ query }}" · {{ selected_site_label }}</span>
         {% elif query and include_nsfw %}
         <span class="nav-center-label">검색: "{{ query }}" · 19금 포함</span>
         {% elif query %}
         <span class="nav-center-label">검색: "{{ query }}"</span>
-        {% elif site and include_nsfw %}
-        <span class="nav-center-label">필터: {{ site_display_names.get(site, site) }} · 19금 포함</span>
-        {% elif site %}
-        <span class="nav-center-label">필터: {{ site_display_names.get(site, site) }}</span>
+        {% elif selected_sites and include_nsfw %}
+        <span class="nav-center-label">필터: {{ selected_site_label }} · 19금 포함</span>
+        {% elif selected_sites %}
+        <span class="nav-center-label">필터: {{ selected_site_label }}</span>
         {% elif include_nsfw %}
         <span class="nav-center-label">필터: 19금 포함</span>
         {% endif %}
       </div>
       <form action="/search" method="get" class="search-inline-form{% if query %} show{% endif %}" id="searchForm">
         <input type="hidden" name="page" value="1">
-        <input type="hidden" name="site" value="{{ site }}">
         <input type="hidden" name="include_nsfw" value="{{ '1' if include_nsfw else '0' }}">
+        {% for site_name in selected_sites %}
+        <input type="hidden" name="site" value="{{ site_name }}">
+        {% endfor %}
         <div class="search-inline-controls">
           <div class="search-input-wrap">
             <input type="text" class="form-control" name="q" id="searchInput"
@@ -278,15 +291,18 @@
             <input type="hidden" name="sort" value="{{ sort_order }}">
             {% endif %}
             <input type="hidden" name="page" value="1">
+            <input type="hidden" name="filters_applied" value="1">
             <input type="hidden" name="include_nsfw" id="includeNsfwInput" value="{{ '1' if include_nsfw else '0' }}">
             <div class="filter-section">
-              <label class="filter-section-title" for="siteFilterSelect">커뮤니티 필터</label>
-              <select class="form-select" name="site" id="siteFilterSelect" aria-label="커뮤니티 필터">
-                <option value="">전체 커뮤니티</option>
+              <span class="filter-section-title">커뮤니티 필터</span>
+              <div class="filter-site-list" aria-label="커뮤니티 필터">
                 {% for site_name in site_names %}
-                <option value="{{ site_name }}" {% if site == site_name %}selected{% endif %}>{{ site_display_names.get(site_name, site_name) }}</option>
+                <label class="filter-site-option" for="siteFilter{{ loop.index }}">
+                  <input class="form-check-input mt-0" type="checkbox" name="site" id="siteFilter{{ loop.index }}" value="{{ site_name }}" {% if site_name in selected_sites %}checked{% endif %}>
+                  <span>{{ site_display_names.get(site_name, site_name) }}</span>
+                </label>
                 {% endfor %}
-              </select>
+              </div>
             </div>
             <div class="filter-section">
               <span class="filter-section-title">19금 필터</span>
@@ -296,7 +312,7 @@
               </label>
             </div>
             <div class="filter-panel-actions">
-              <a class="btn btn-outline-secondary" href="{% if current_endpoint == 'search' %}{{ url_for('search', q=query, sort=sort_order, page=1, site='', include_nsfw=0) }}{% else %}{{ url_for('index', page=1, site='', include_nsfw=0) }}{% endif %}">초기화</a>
+              <a class="btn btn-outline-secondary" href="{% if current_endpoint == 'search' %}{{ url_for('search', q=query, sort=sort_order, page=1, include_nsfw=0) }}{% else %}{{ url_for('index', page=1, include_nsfw=0) }}{% endif %}">초기화</a>
               <button class="btn btn-primary" type="submit">적용</button>
             </div>
           </form>
@@ -341,21 +357,21 @@
         {% if page > 1 %}
         <li class="page-item">
           <a class="page-link"
-             href="{% if query %}{{ url_for('search', q=query, site=site, sort=sort_order, include_nsfw='1' if include_nsfw else '0', page=page - 1) }}{% else %}{{ url_for('index', site=site, include_nsfw='1' if include_nsfw else '0', page=page - 1) }}{% endif %}">이전</a>
+             href="{% if query %}{{ url_for('search', q=query, sort=sort_order, page=page - 1) }}&{{ filter_query }}{% else %}{{ url_for('index', page=page - 1) }}?{{ filter_query }}{% endif %}">이전</a>
         </li>
         {% endif %}
 
         {% for p in range([1, page - 4]|max, [total_pages + 1, page + 5]|min) %}
         <li class="page-item {% if p == page %}active{% endif %}">
           <a class="page-link"
-             href="{% if query %}{{ url_for('search', q=query, site=site, sort=sort_order, include_nsfw='1' if include_nsfw else '0', page=p) }}{% else %}{{ url_for('index', site=site, include_nsfw='1' if include_nsfw else '0', page=p) }}{% endif %}">{{ p }}</a>
+             href="{% if query %}{{ url_for('search', q=query, sort=sort_order, page=p) }}&{{ filter_query }}{% else %}{{ url_for('index', page=p) }}?{{ filter_query }}{% endif %}">{{ p }}</a>
         </li>
         {% endfor %}
 
         {% if page < total_pages %}
         <li class="page-item">
           <a class="page-link"
-             href="{% if query %}{{ url_for('search', q=query, site=site, sort=sort_order, include_nsfw='1' if include_nsfw else '0', page=page + 1) }}{% else %}{{ url_for('index', site=site, include_nsfw='1' if include_nsfw else '0', page=page + 1) }}{% endif %}">다음</a>
+             href="{% if query %}{{ url_for('search', q=query, sort=sort_order, page=page + 1) }}&{{ filter_query }}{% else %}{{ url_for('index', page=page + 1) }}?{{ filter_query }}{% endif %}">다음</a>
         </li>
         {% endif %}
       </ul>
