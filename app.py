@@ -160,6 +160,15 @@ def parse_bool(value: str | bool | None, default: bool = False) -> bool:
     return value.strip().lower() in {'1', 'true', 'yes', 'on'}
 
 
+def parse_page_arg(default: int = 1) -> int:
+    raw = request.args.get('page', default)
+
+    try:
+        return max(1, int(raw))
+    except (TypeError, ValueError):
+        return default
+
+
 def load_filter_preferences() -> dict:
     raw = request.cookies.get(FILTER_COOKIE_NAME, '')
     if not raw:
@@ -422,7 +431,7 @@ def collect_user_agent(response):
 
 @app.route('/')
 def index():
-    page = max(1, int(request.args.get('page', 1)))
+    page = parse_page_arg()
     site_names = get_site_names()
     selected_sites, include_nsfw = resolve_filters(site_names)
     cached = get_cached_recent_page(selected_sites, page, include_nsfw=include_nsfw)
@@ -452,7 +461,7 @@ def index():
 @app.route('/search')
 def search():
     query = request.args.get('q', '').strip()
-    page = max(1, int(request.args.get('page', 1)))
+    page = parse_page_arg()
     sort_order = request.args.get('sort', 'published_desc').strip() or 'published_desc'
     site_names = get_site_names()
     selected_sites, include_nsfw = resolve_filters(site_names)
