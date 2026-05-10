@@ -67,6 +67,9 @@
       --clear-btn-hover-bg: rgba(173, 181, 189, .16);
     }
     body { background: var(--body-bg); color: var(--text-primary); }
+    body.pull-refresh-active {
+      overflow-y: hidden;
+    }
     .navbar { background: var(--surface-bg); border-bottom: 1px solid var(--border-color); }
     .navbar-top {
       display: grid;
@@ -183,6 +186,35 @@
       font-size: 15px;
     }
     .content-wrap { width: 100%; max-width: 860px; margin: 0 auto; padding: 0; }
+    .pull-refresh-indicator {
+      position: fixed;
+      top: 0;
+      left: 50%;
+      transform: translate(-50%, -100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 132px;
+      height: 36px;
+      padding: 0 14px;
+      border-radius: 0 0 12px 12px;
+      background: var(--surface-bg);
+      border: 1px solid var(--border-color);
+      border-top: 0;
+      box-shadow: var(--shadow-color);
+      color: var(--text-secondary);
+      font-size: 12px;
+      opacity: 0;
+      pointer-events: none;
+      z-index: 1100;
+      transition: transform .18s ease, opacity .18s ease;
+    }
+    .pull-refresh-indicator.visible {
+      opacity: 1;
+    }
+    .pull-refresh-indicator.ready {
+      color: var(--text-primary);
+    }
     @media (min-width: 768px) {
       .content-wrap { padding: 0; }
     }
@@ -217,6 +249,8 @@
   </style>
 </head>
 <body>
+
+<div class="pull-refresh-indicator" id="pullRefreshIndicator" aria-hidden="true">아래로 당겨 새로고침</div>
 
 <nav class="navbar sticky-top px-3 py-2">
   <div class="w-100">
@@ -383,6 +417,8 @@
 
 <script>
 const THEME_STORAGE_KEY = 'community-web-theme';
+const PULL_REFRESH_MAX = 96;
+const PULL_REFRESH_THRESHOLD = 72;
 
 function getPreferredTheme() {
   const currentTheme = document.documentElement.getAttribute('data-theme');
@@ -464,6 +500,105 @@ function clearSearch() {
   input.focus();
 }
 
+function setupPullToRefresh() {
+  if (!window.matchMedia || !window.matchMedia('(pointer: coarse)').matches) {
+    return;
+  }
+
+  const indicator = document.getElementById('pullRefreshIndicator');
+  if (!indicator) {
+    return;
+  }
+
+  let startY = 0;
+  let currentOffset = 0;
+  let dragging = false;
+  let readyToRefresh = false;
+  let refreshing = false;
+
+  function resetIndicator() {
+    currentOffset = 0;
+    dragging = false;
+    readyToRefresh = false;
+    indicator.classList.remove('visible', 'ready');
+    indicator.style.transform = 'translate(-50%, -100%)';
+    indicator.textContent = '아래로 당겨 새로고침';
+    document.body.classList.remove('pull-refresh-active');
+  }
+
+  function shouldIgnoreGesture(target) {
+    if (!target) {
+      return false;
+    }
+
+    if (target.closest('input, textarea, select, button, a, .filter-panel')) {
+      return true;
+    }
+
+    return false;
+  }
+
+  window.addEventListener('touchstart', function(event) {
+    if (refreshing || window.scrollY > 0 || shouldIgnoreGesture(event.target)) {
+      dragging = false;
+      return;
+    }
+
+    startY = event.touches[0].clientY;
+    dragging = true;
+    readyToRefresh = false;
+  }, { passive: true });
+
+  window.addEventListener('touchmove', function(event) {
+    if (!dragging || refreshing) {
+      return;
+    }
+
+    const deltaY = event.touches[0].clientY - startY;
+    if (deltaY <= 0) {
+      resetIndicator();
+      return;
+    }
+
+    if (window.scrollY > 0) {
+      resetIndicator();
+      return;
+    }
+
+    currentOffset = Math.min(PULL_REFRESH_MAX, deltaY * 0.45);
+    readyToRefresh = currentOffset >= PULL_REFRESH_THRESHOLD;
+
+    indicator.classList.add('visible');
+    indicator.classList.toggle('ready', readyToRefresh);
+    indicator.style.transform = 'translate(-50%, ' + (currentOffset - 100) + '%)';
+    indicator.textContent = readyToRefresh ? '놓으면 새로고침' : '아래로 당겨 새로고침';
+    document.body.classList.add('pull-refresh-active');
+    event.preventDefault();
+  }, { passive: false });
+
+  window.addEventListener('touchend', function() {
+    if (!dragging || refreshing) {
+      return;
+    }
+
+    dragging = false;
+
+    if (readyToRefresh) {
+      refreshing = true;
+      indicator.classList.add('visible');
+      indicator.classList.remove('ready');
+      indicator.style.transform = 'translate(-50%, 0)';
+      indicator.textContent = '새로고침 중...';
+      window.location.reload();
+      return;
+    }
+
+    resetIndicator();
+  }, { passive: true });
+
+  window.addEventListener('touchcancel', resetIndicator, { passive: true });
+}
+
 document.addEventListener('keydown', function(e) {
   if (e.key === 'Escape') {
     closeFilterPanel();
@@ -477,6 +612,7 @@ document.addEventListener('keydown', function(e) {
 
 document.addEventListener('DOMContentLoaded', function() {
   applyTheme(getPreferredTheme());
+  setupPullToRefresh();
 
   const searchInput = document.getElementById('searchInput');
   if (searchInput) {
