@@ -1,7 +1,8 @@
 import os
 import logging
 import json
-from datetime import datetime
+import threading
+from datetime import datetime, timezone
 from urllib.parse import urlencode
 
 import psycopg2
@@ -10,6 +11,13 @@ from elasticsearch import Elasticsearch
 from flask import Flask, make_response, render_template, request
 from redis import Redis
 from redis.exceptions import RedisError
+
+try:
+    from kafka import KafkaProducer
+    from kafka.errors import KafkaError
+    _kafka_available = True
+except ImportError:
+    _kafka_available = False
 
 app = Flask(__name__)
 logger = logging.getLogger(__name__)
@@ -45,8 +53,12 @@ REDIS_DB = int(os.environ.get('REDIS_DB', 0))
 CACHE_PREFIX = 'community-web:recent'
 FILTER_COOKIE_NAME = 'community-web-filters'
 FILTER_COOKIE_MAX_AGE = 60 * 60 * 24 * 365
+KAFKA_BOOTSTRAP_SERVERS = os.environ.get('KAFKA_BOOTSTRAP_SERVERS', '')
+KAFKA_UA_TOPIC = 'community-web.user-agents'
 
 _redis_client = None
+_kafka_producer = None
+_kafka_producer_lock = threading.Lock()
 
 
 def pg():
@@ -74,6 +86,48 @@ def cache():
         )
 
     return _redis_client
+
+
+def kafka_producer():
+    global _kafka_producer
+
+    if not _kafka_available or not KAFKA_BOOTSTRAP_SERVERS:
+        return None
+
+    with _kafka_producer_lock:
+        if _kafka_producer is None:
+            try:
+                _kafka_producer = KafkaProducer(
+                    bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS.split(','),
+                    value_serializer=lambda v: json.dumps(v).encode('utf-8'),
+                    request_timeout_ms=3000,
+                    retries=0,
+                )
+            except KafkaError as exc:
+                logger.warning('Kafka producer init failed: %s', exc)
+                return None
+
+    return _kafka_producer
+
+
+def emit_user_agent(user_agent: str) -> None:
+    producer = kafka_producer()
+    if not producer or not user_agent:
+        return
+
+    payload = {
+        'user_agent': user_agent,
+        'timestamp': datetime.now(timezone.utc).isoformat(),
+        'source': 'community-web',
+    }
+
+    def _send():
+        try:
+            producer.send(KAFKA_UA_TOPIC, value=payload)
+        except Exception as exc:
+            logger.debug('Kafka send failed: %s', exc)
+
+    threading.Thread(target=_send, daemon=True).start()
 
 
 def site_cache_slug(sites: list[str]) -> str:
@@ -356,6 +410,14 @@ def get_cached_recent_page(selected_sites: list[str], page: int, include_nsfw: b
     except RedisError as exc:
         logger.warning('Redis recent page read failed: %s', exc)
         return None
+
+
+@app.after_request
+def collect_user_agent(response):
+    ua = request.headers.get('User-Agent', '')
+    if ua:
+        emit_user_agent(ua)
+    return response
 
 
 @app.route('/')
