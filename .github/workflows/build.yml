@@ -43,3 +43,20 @@ jobs:
           tags: |
             ghcr.io/${{ github.repository_owner }}/community-web:latest
             ghcr.io/${{ github.repository_owner }}/community-web:${{ github.sha }}
+
+      - name: Checkout k8s-manifests
+        uses: actions/checkout@v4
+        with:
+          repository: iitns/k8s-manifests
+          token: ${{ secrets.K8S_MANIFESTS_PAT }}
+          path: k8s-manifests
+
+      - name: Update oracle-community-web image tag
+        run: |
+          sed -i "s|image: ghcr.io/iitns/community-web:.*|image: ghcr.io/iitns/community-web:${{ github.sha }}|" \
+            k8s-manifests/apps/oracle-community-web/deployment.yaml
+          cd k8s-manifests
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git commit -am "chore: update community-web image to ${{ github.sha }}"
+          git push
