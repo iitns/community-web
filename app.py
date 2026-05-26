@@ -55,7 +55,7 @@ FILTER_COOKIE_NAME = 'community-web-filters'
 FILTER_COOKIE_MAX_AGE = 60 * 60 * 24 * 365
 KAFKA_BOOTSTRAP_SERVERS = os.environ.get('KAFKA_BOOTSTRAP_SERVERS', '')
 KAFKA_UA_TOPIC = 'community-web.user-agents'
-ANALYTICS_KAFKA_TOPIC = os.environ.get('ANALYTICS_KAFKA_TOPIC', 'analytics.events')
+ANALYTICS_KAFKA_TOPIC = os.environ.get('ANALYTICS_KAFKA_TOPIC', 'community-web-analytics')
 _ANALYTICS_API_KEYS = set(
     k.strip()
     for k in os.environ.get('ANALYTICS_API_KEY', '').split(',')
