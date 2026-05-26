@@ -8,7 +8,7 @@ from urllib.parse import urlencode
 import psycopg2
 import psycopg2.extras
 from elasticsearch import Elasticsearch
-from flask import Flask, jsonify, make_response, render_template, request
+from flask import Flask, make_response, render_template, request
 from redis import Redis
 from redis.exceptions import RedisError
 
@@ -55,12 +55,6 @@ FILTER_COOKIE_NAME = 'community-web-filters'
 FILTER_COOKIE_MAX_AGE = 60 * 60 * 24 * 365
 KAFKA_BOOTSTRAP_SERVERS = os.environ.get('KAFKA_BOOTSTRAP_SERVERS', '')
 KAFKA_UA_TOPIC = 'community-web.user-agents'
-ANALYTICS_KAFKA_TOPIC = os.environ.get('ANALYTICS_KAFKA_TOPIC', 'community-web-analytics')
-_ANALYTICS_API_KEYS = set(
-    k.strip()
-    for k in os.environ.get('ANALYTICS_API_KEY', '').split(',')
-    if k.strip()
-)
 
 _redis_client = None
 _kafka_producer = None
@@ -134,41 +128,6 @@ def emit_user_agent(user_agent: str) -> None:
             logger.debug('Kafka send failed: %s', exc)
 
     threading.Thread(target=_send, daemon=True).start()
-
-
-def check_analytics_api_key(api_key: str) -> bool:
-    if not _ANALYTICS_API_KEYS:
-        return True
-    return api_key in _ANALYTICS_API_KEYS
-
-
-def emit_analytics_event(event: dict) -> None:
-    producer = kafka_producer()
-    if not producer:
-        return
-
-    def _send():
-        try:
-            producer.send(ANALYTICS_KAFKA_TOPIC, value=event)
-        except Exception as exc:
-            logger.debug('Kafka analytics send failed: %s', exc)
-
-    threading.Thread(target=_send, daemon=True).start()
-
-
-def build_analytics_message(event: dict, received_at: str) -> dict:
-    props = event.get('properties') or {}
-    session_id = props.get('$posthog_session_id') or props.get('session_id') or ''
-    timestamp = event.get('timestamp') or received_at
-    return {
-        'event': event.get('event', ''),
-        'distinct_id': event.get('distinct_id', ''),
-        'session_id': session_id,
-        'properties': props,
-        'timestamp': timestamp,
-        'received_at': received_at,
-        'source': 'community-web',
-    }
 
 
 def site_cache_slug(sites: list[str]) -> str:
@@ -468,31 +427,6 @@ def collect_user_agent(response):
     if ua:
         emit_user_agent(ua)
     return response
-
-
-@app.route('/capture/', methods=['POST'])
-def analytics_capture():
-    data = request.get_json(silent=True) or {}
-    if not check_analytics_api_key(data.get('api_key', '')):
-        return jsonify({'status': 0, 'error': 'Unauthorized'}), 401
-
-    received_at = datetime.now(timezone.utc).isoformat()
-    msg = build_analytics_message(data, received_at)
-    emit_analytics_event(msg)
-    return jsonify({'status': 1}), 200
-
-
-@app.route('/batch/', methods=['POST'])
-def analytics_batch():
-    data = request.get_json(silent=True) or {}
-    if not check_analytics_api_key(data.get('api_key', '')):
-        return jsonify({'status': 0, 'error': 'Unauthorized'}), 401
-
-    received_at = datetime.now(timezone.utc).isoformat()
-    for event in data.get('batch', []):
-        msg = build_analytics_message(event, received_at)
-        emit_analytics_event(msg)
-    return jsonify({'status': 1}), 200
 
 
 @app.route('/')
