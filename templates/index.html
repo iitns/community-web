@@ -371,7 +371,9 @@
     {% for a in articles %}
     <div class="article-row">
       <span class="site-badge">{{ site_display_names.get(a.site_name, a.site_name) }}</span>
-      <a class="article-title" href="{{ a.url }}">{{ a.title }}</a>
+      <a class="article-title" href="{{ a.url }}"
+         data-article-id="{{ a.site_name }}-{{ a.article_id }}"
+         data-site-name="{{ a.site_name }}">{{ a.title }}</a>
       <span class="article-date"
             {% if a.published_at %}
             data-datetime="{{ a.published_at.isoformat() if a.published_at is not string else a.published_at }}"
@@ -635,6 +637,43 @@ document.addEventListener('DOMContentLoaded', function() {
   if (includeNsfwCheckbox && includeNsfwInput) {
     includeNsfwCheckbox.addEventListener('change', function() {
       includeNsfwInput.value = includeNsfwCheckbox.checked ? '1' : '0';
+    });
+  }
+
+  document.querySelectorAll('.article-title[data-article-id]').forEach(function(link) {
+    link.addEventListener('click', function() {
+      posthog.capture('article_click', {
+        article_id: link.dataset.articleId,
+        site_name: link.dataset.siteName,
+        title: link.textContent.trim(),
+      });
+    });
+  });
+
+  const filterForm = document.querySelector('.filter-panel-form');
+  if (filterForm) {
+    filterForm.addEventListener('submit', function() {
+      filterForm.querySelectorAll('.filter-site-list input[type="checkbox"]:checked').forEach(function(cb) {
+        posthog.capture('filter-' + cb.value);
+      });
+      if (includeNsfwCheckbox && includeNsfwCheckbox.checked) {
+        posthog.capture('filter-nsfw');
+      }
+    });
+  }
+
+  const searchForm = document.getElementById('searchForm');
+  if (searchForm) {
+    searchForm.addEventListener('submit', function() {
+      const query = document.getElementById('searchInput').value.trim();
+      if (!query) return;
+      const sites = Array.from(searchForm.querySelectorAll('input[name="site"]')).map(function(i) { return i.value; });
+      const nsfwInput = searchForm.querySelector('input[name="include_nsfw"]');
+      posthog.capture('search', {
+        query: query,
+        sites: sites,
+        include_nsfw: nsfwInput ? nsfwInput.value === '1' : false,
+      });
     });
   }
 
