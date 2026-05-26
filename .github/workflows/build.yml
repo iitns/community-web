@@ -21,25 +21,28 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up QEMU and Buildx
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y qemu-user-static
-          docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
-          docker buildx create --name multiarch --use
-          docker buildx inspect --bootstrap
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
       - name: Log in to GitHub Container Registry
-        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push
-        run: |
-          docker buildx build \
-            --platform linux/amd64,linux/arm64 \
-            --push \
-            -t ghcr.io/${{ github.repository_owner }}/community-web:latest \
-            -t ghcr.io/${{ github.repository_owner }}/community-web:${{ github.sha }} \
-            .
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/community-web:latest
+            ghcr.io/${{ github.repository_owner }}/community-web:${{ github.sha }}
 
       - name: Checkout k8s-manifests
         uses: actions/checkout@v4
