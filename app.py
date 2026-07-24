@@ -1,6 +1,7 @@
 import os
 import logging
 import json
+import hmac
 import threading
 from datetime import datetime, timezone
 from urllib.parse import urlencode
@@ -8,7 +9,7 @@ from urllib.parse import urlencode
 import psycopg2
 import psycopg2.extras
 from elasticsearch import Elasticsearch
-from flask import Flask, make_response, render_template, request
+from flask import Flask, jsonify, make_response, render_template, request
 from redis import Redis
 from redis.exceptions import RedisError
 
@@ -20,6 +21,7 @@ except ImportError:
     _kafka_available = False
 
 app = Flask(__name__)
+app.json.ensure_ascii = False
 logger = logging.getLogger(__name__)
 
 PAGE_SIZE = 30
@@ -55,6 +57,8 @@ FILTER_COOKIE_NAME = 'community-web-filters'
 FILTER_COOKIE_MAX_AGE = 60 * 60 * 24 * 365
 KAFKA_BOOTSTRAP_SERVERS = os.environ.get('KAFKA_BOOTSTRAP_SERVERS', '')
 KAFKA_UA_TOPIC = 'community-web.user-agents'
+API_CORS_ALLOW_ORIGIN = os.environ.get('API_CORS_ALLOW_ORIGIN', '*')
+API_PROXY_TOKEN = os.environ.get('API_PROXY_TOKEN', '')
 
 _redis_client = None
 _kafka_producer = None
@@ -199,8 +203,8 @@ def normalize_selected_sites(site_names: list[str], selected_sites: list[str]) -
     return normalized
 
 
-def resolve_filters(site_names: list[str]) -> tuple[list[str], bool]:
-    saved = load_filter_preferences()
+def resolve_filters(site_names: list[str], *, use_saved_preferences: bool = True) -> tuple[list[str], bool]:
+    saved = load_filter_preferences() if use_saved_preferences else {}
     filters_applied = request.args.get('filters_applied') == '1'
     selected_sites = request.args.getlist('site')
     if not selected_sites:
@@ -208,7 +212,7 @@ def resolve_filters(site_names: list[str]) -> tuple[list[str], bool]:
         if single_site is not None:
             selected_sites = [single_site]
 
-    if not selected_sites and not filters_applied:
+    if not selected_sites and not filters_applied and use_saved_preferences:
         saved_sites = saved.get('sites', [])
         if isinstance(saved_sites, list):
             selected_sites = [str(site) for site in saved_sites]
@@ -220,7 +224,7 @@ def resolve_filters(site_names: list[str]) -> tuple[list[str], bool]:
 
     include_nsfw_arg = request.args.get('include_nsfw')
     if include_nsfw_arg is None:
-        include_nsfw = parse_bool(saved.get('include_nsfw'), default=False)
+        include_nsfw = parse_bool(saved.get('include_nsfw'), default=False) if use_saved_preferences else False
     else:
         include_nsfw = parse_bool(include_nsfw_arg, default=False)
 
@@ -421,54 +425,42 @@ def get_cached_recent_page(selected_sites: list[str], page: int, include_nsfw: b
         return None
 
 
-@app.after_request
-def collect_user_agent(response):
-    ua = request.headers.get('User-Agent', '')
-    if ua:
-        emit_user_agent(ua)
-    return response
-
-
-@app.route('/')
-def index():
-    page = parse_page_arg()
-    site_names = get_site_names()
-    selected_sites, include_nsfw = resolve_filters(site_names)
+def build_index_context(*, page: int, site_names: list[str], selected_sites: list[str], include_nsfw: bool) -> dict:
     cached = get_cached_recent_page(selected_sites, page, include_nsfw=include_nsfw)
 
     if cached:
         articles = cached['articles']
+        total = cached.get('total', 0)
         total_pages = cached['total_pages']
     else:
         articles, total = fetch_articles_page(selected_sites=selected_sites, page=page, include_nsfw=include_nsfw)
         total_pages = (total + PAGE_SIZE - 1) // PAGE_SIZE
 
-    return render_with_filter_cookie(
-        'index.html',
-        articles=articles,
-        page=page,
-        total_pages=total_pages,
-        query='',
-        current_endpoint='index',
-        sort_order='published_desc',
-        site_names=site_names,
-        site_display_names=SITE_DISPLAY_NAMES,
-        selected_sites=selected_sites,
-        include_nsfw=include_nsfw,
-    )
+    return {
+        'articles': articles,
+        'page': page,
+        'page_size': PAGE_SIZE,
+        'total': total,
+        'total_pages': total_pages,
+        'query': '',
+        'current_endpoint': 'index',
+        'sort_order': 'published_desc',
+        'site_names': site_names,
+        'site_display_names': SITE_DISPLAY_NAMES,
+        'selected_sites': selected_sites,
+        'include_nsfw': include_nsfw,
+    }
 
 
-@app.route('/search')
-def search():
-    query = request.args.get('q', '').strip()
-    page = parse_page_arg()
-    sort_order = request.args.get('sort', 'published_desc').strip() or 'published_desc'
-    site_names = get_site_names()
-    selected_sites, include_nsfw = resolve_filters(site_names)
-
-    if not query:
-        return index()
-
+def build_search_context(
+    *,
+    query: str,
+    page: int,
+    sort_order: str,
+    site_names: list[str],
+    selected_sites: list[str],
+    include_nsfw: bool,
+) -> dict:
     client = es()
     must = [{'multi_match': {'query': query, 'fields': ['title']}}]
     filters = []
@@ -511,19 +503,176 @@ def search():
         total = 0
 
     total_pages = (total + PAGE_SIZE - 1) // PAGE_SIZE
-    return render_with_filter_cookie(
-        'index.html',
-        articles=articles,
+    return {
+        'articles': articles,
+        'page': page,
+        'page_size': PAGE_SIZE,
+        'total': total,
+        'total_pages': total_pages,
+        'query': query,
+        'current_endpoint': 'search',
+        'sort_order': sort_order,
+        'site_names': site_names,
+        'site_display_names': SITE_DISPLAY_NAMES,
+        'selected_sites': selected_sites,
+        'include_nsfw': include_nsfw,
+    }
+
+
+def build_api_payload(context: dict) -> dict:
+    return {
+        'articles': context['articles'],
+        'pagination': {
+            'page': context['page'],
+            'page_size': context['page_size'],
+            'total': context['total'],
+            'total_pages': context['total_pages'],
+        },
+        'query': context['query'],
+        'sort_order': context['sort_order'],
+        'filters': {
+            'selected_sites': context['selected_sites'],
+            'include_nsfw': context['include_nsfw'],
+        },
+        'site_names': context['site_names'],
+        'site_display_names': context['site_display_names'],
+    }
+
+
+def api_preflight_response():
+    return ('', 204)
+
+
+@app.before_request
+def verify_api_proxy_token():
+    if not API_PROXY_TOKEN or not request.path.startswith('/api/'):
+        return None
+
+    provided_token = request.headers.get('X-Community-Proxy-Token', '')
+    if not hmac.compare_digest(provided_token, API_PROXY_TOKEN):
+        return jsonify({'error': 'forbidden'}), 403
+
+    return None
+
+
+@app.after_request
+def collect_user_agent(response):
+    ua = request.headers.get('User-Agent', '')
+    if ua:
+        emit_user_agent(ua)
+
+    if request.path.startswith('/api/'):
+        response.headers['Access-Control-Allow-Origin'] = API_CORS_ALLOW_ORIGIN
+        response.headers['Access-Control-Allow-Methods'] = 'GET, OPTIONS'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, X-Community-Proxy-Token'
+        response.headers['Access-Control-Max-Age'] = '86400'
+    return response
+
+
+@app.route('/')
+def index():
+    page = parse_page_arg()
+    site_names = get_site_names()
+    selected_sites, include_nsfw = resolve_filters(site_names)
+    context = build_index_context(
         page=page,
-        total_pages=total_pages,
-        query=query,
-        current_endpoint='search',
-        sort_order=sort_order,
         site_names=site_names,
-        site_display_names=SITE_DISPLAY_NAMES,
         selected_sites=selected_sites,
         include_nsfw=include_nsfw,
     )
+    return render_with_filter_cookie(
+        'index.html',
+        **context,
+    )
+
+
+@app.route('/search')
+def search():
+    query = request.args.get('q', '').strip()
+    page = parse_page_arg()
+    sort_order = request.args.get('sort', 'published_desc').strip() or 'published_desc'
+    site_names = get_site_names()
+    selected_sites, include_nsfw = resolve_filters(site_names)
+
+    if not query:
+        return index()
+
+    context = build_search_context(
+        query=query,
+        page=page,
+        sort_order=sort_order,
+        site_names=site_names,
+        selected_sites=selected_sites,
+        include_nsfw=include_nsfw,
+    )
+    return render_with_filter_cookie(
+        'index.html',
+        **context,
+    )
+
+
+@app.route('/api/v1/sites', methods=['GET', 'OPTIONS'])
+def api_sites():
+    if request.method == 'OPTIONS':
+        return api_preflight_response()
+
+    return jsonify({
+        'site_names': get_site_names(),
+        'site_display_names': SITE_DISPLAY_NAMES,
+    })
+
+
+@app.route('/api/v1/articles', methods=['GET', 'OPTIONS'])
+def api_articles():
+    if request.method == 'OPTIONS':
+        return api_preflight_response()
+
+    page = parse_page_arg()
+    site_names = get_site_names()
+    selected_sites, include_nsfw = resolve_filters(site_names, use_saved_preferences=False)
+    context = build_index_context(
+        page=page,
+        site_names=site_names,
+        selected_sites=selected_sites,
+        include_nsfw=include_nsfw,
+    )
+    return jsonify(build_api_payload(context))
+
+
+@app.route('/api/v1/search', methods=['GET', 'OPTIONS'])
+def api_search():
+    if request.method == 'OPTIONS':
+        return api_preflight_response()
+
+    query = request.args.get('q', '').strip()
+    page = parse_page_arg()
+    sort_order = request.args.get('sort', 'published_desc').strip() or 'published_desc'
+    site_names = get_site_names()
+    selected_sites, include_nsfw = resolve_filters(site_names, use_saved_preferences=False)
+
+    if not query:
+        context = build_index_context(
+            page=page,
+            site_names=site_names,
+            selected_sites=selected_sites,
+            include_nsfw=include_nsfw,
+        )
+    else:
+        context = build_search_context(
+            query=query,
+            page=page,
+            sort_order=sort_order,
+            site_names=site_names,
+            selected_sites=selected_sites,
+            include_nsfw=include_nsfw,
+        )
+
+    return jsonify(build_api_payload(context))
+
+
+@app.route('/healthz')
+def healthz():
+    return jsonify({'status': 'ok'})
 
 
 if __name__ == '__main__':

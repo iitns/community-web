@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ㅂㅇㅂ</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="/styles.css">
+  <script>
+    !function(t,e){var o,n,p,r;e.__SV||(window.posthog&&window.posthog.__loaded)||(window.posthog=e,e._i=[],e.init=function(i,s,a){function g(t,e){var o=e.split(".");2==o.length&&(t=t[o[0]],e=o[1]),t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}}(p=t.createElement("script")).type="text/javascript",p.crossOrigin="anonymous",p.async=!0,p.src=s.api_host.replace(".i.posthog.com","-assets.i.posthog.com")+"/static/array.js",(r=t.getElementsByTagName("script")[0]).parentNode.insertBefore(p,r);var u=e;for(void 0!==a?u=e[a]=[]:a="posthog",u.people=u.people||[],u.toString=function(t){var e="posthog";return"posthog"!==a&&(e+="."+a),t||(e+=" (stub)"),e},u.people.toString=function(){return u.toString(1)+".people (stub)"},o="Mi Ri init Vi Gi Rr Wi Ji Bi capture calculateEventProperties tn register register_once register_for_session unregister unregister_for_session an getFeatureFlag getFeatureFlagPayload getFeatureFlagResult isFeatureEnabled reloadFeatureFlags updateFlags updateEarlyAccessFeatureEnrollment getEarlyAccessFeatures on onFeatureFlags onSurveysLoaded onSessionId getSurveys getActiveMatchingSurveys renderSurvey displaySurvey cancelPendingSurvey canRenderSurvey canRenderSurveyAsync un identify setPersonProperties group resetGroups setPersonPropertiesForFlags resetPersonPropertiesForFlags setGroupPropertiesForFlags resetGroupPropertiesForFlags reset setIdentity clearIdentity get_distinct_id getGroups get_session_id get_session_replay_url alias set_config startSessionRecording stopSessionRecording sessionRecordingStarted captureException addExceptionStep captureLog startExceptionAutocapture stopExceptionAutocapture loadToolbar get_property getSessionProperty nn Xi createPersonProfile setInternalOrTestUser sn Hi cn opt_in_capturing opt_out_capturing has_opted_in_capturing has_opted_out_capturing get_explicit_consent_status is_capturing clear_opt_in_out_capturing Ki debug Lr rn getPageViewId captureTraceFeedback captureTraceMetric Di".split(" "),n=0;n<o.length;n++)g(u,o[n]);e._i.push([i,s,a])},e.__SV=1)}(document,window.posthog||[]);
+    posthog.init('phc_psxHXpGkF3aFcbWuWeAVaFTzf2rj4vVtEyEkJKuVx6LK', {
+      api_host: 'https://t.amolant.net',
+      ui_host: 'https://us.posthog.com',
+      defaults: '2026-01-30',
+      person_profiles: 'identified_only',
+    });
+  </script>
+  <script>
+    (function() {
+      var storageKey = 'community-web-theme';
+      var theme = 'light';
+
+      try {
+        var savedTheme = localStorage.getItem(storageKey);
+        if (savedTheme === 'light' || savedTheme === 'dark') {
+          theme = savedTheme;
+        } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+          theme = 'dark';
+        }
+      } catch (error) {
+        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+          theme = 'dark';
+        }
+      }
+
+      document.documentElement.setAttribute('data-theme', theme);
+      document.documentElement.setAttribute('data-bs-theme', theme);
+    })();
+  </script>
+  <script defer src="/config.js"></script>
+  <script defer src="/app.js"></script>
+</head>
+<body>
+<div class="pull-refresh-indicator" id="pullRefreshIndicator" aria-hidden="true">아래로 당겨 새로고침</div>
+
+<nav class="navbar sticky-top px-3 py-2">
+  <div class="w-100">
+    <div class="navbar-top" id="navbarTop">
+      <a href="/" class="brand-link fw-bold fs-5 text-decoration-none">ㅂㅇㅂ</a>
+      <div class="nav-center" id="navCenter">
+        <span class="nav-center-label" id="navCenterLabel"></span>
+      </div>
+      <form action="/search" method="get" class="search-inline-form" id="searchForm">
+        <div class="search-inline-controls">
+          <div class="search-input-wrap">
+            <input type="text" class="form-control" name="q" id="searchInput" placeholder="검색어 입력...">
+            <button class="search-clear-btn" id="clearSearchBtn" type="button" aria-label="검색어 지우기">
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M4 4L12 12M12 4L4 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+              </svg>
+            </button>
+          </div>
+          <select class="form-select sort-select" name="sort" id="searchSortSelect" aria-label="정렬 선택">
+            <option value="published_desc">게시 시간순</option>
+            <option value="relevance">관련도순</option>
+          </select>
+          <button class="btn btn-primary search-submit-btn" type="submit">검색</button>
+        </div>
+      </form>
+      <div class="nav-actions">
+        <button class="btn btn-link p-1 filter-toggle-btn" id="filterToggleBtn" type="button" aria-label="필터 열기" aria-expanded="false" aria-controls="filterPanel">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16">
+            <path d="M6 10.117V15l4-2.5v-2.383l4.447-5.929A1 1 0 0 0 13.647 2H2.353a1 1 0 0 0-.8 1.588L6 10.117z"/>
+          </svg>
+        </button>
+        <button class="btn btn-link p-1 search-toggle-btn" id="searchToggleBtn" type="button" aria-label="검색 열기">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16">
+            <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.099zm-5.242 1.156a5.5 5.5 0 1 1 0-11 5.5 5.5 0 0 1 0 11z"/>
+          </svg>
+        </button>
+        <button class="btn btn-link p-1 theme-toggle-btn" id="themeToggleBtn" type="button" aria-label="다크모드 켜기" title="다크모드 켜기">
+          <svg class="theme-icon theme-icon-moon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <svg class="theme-icon theme-icon-sun" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="1.7"/>
+            <path d="M12 2.75V5.25M12 18.75V21.25M21.25 12H18.75M5.25 12H2.75M18.54 5.46L16.77 7.23M7.23 16.77L5.46 18.54M18.54 18.54L16.77 16.77M7.23 7.23L5.46 5.46" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+          </svg>
+        </button>
+        <div class="filter-panel" id="filterPanel">
+          <form class="filter-panel-form" id="filterForm">
+            <div class="filter-section">
+              <span class="filter-section-title">커뮤니티 필터</span>
+              <div class="filter-site-list" id="filterSiteList" aria-label="커뮤니티 필터"></div>
+            </div>
+            <div class="filter-section">
+              <span class="filter-section-title">19금 필터</span>
+              <label class="filter-switch" for="includeNsfwCheckbox">
+                <input class="form-check-input mt-0" type="checkbox" id="includeNsfwCheckbox">
+                <span>19금 게시물 포함</span>
+              </label>
+            </div>
+            <div class="filter-panel-actions">
+              <a class="btn btn-outline-secondary" href="/" id="resetFiltersLink">초기화</a>
+              <button class="btn btn-primary" type="submit">적용</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+</nav>
+
+<div class="content-wrap">
+  <div class="article-list" id="articleList">
+    <p class="text-center text-muted py-4" id="loadingMessage">불러오는 중...</p>
+  </div>
+
+  <div class="pagination-area" id="paginationArea" hidden>
+    <nav class="pagination-nav" aria-label="페이지 이동">
+      <ul class="pagination pagination-wide" id="paginationList"></ul>
+    </nav>
+  </div>
+</div>
+
+<noscript>
+  <div class="content-wrap py-4 text-center text-muted">이 페이지는 JavaScript가 필요합니다.</div>
+</noscript>
+</body>
+</html>

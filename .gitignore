@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.venv/
+
+node_modules/
+.wrangler/
+worker-configuration.d.ts
+
+CLAUDE.md

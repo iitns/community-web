@@ -1,0 +1,19 @@
+{
+  "name": "community-web-api",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "types": "wrangler types"
+  },
+  "dependencies": {
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260721.0",
+    "@types/pg": "^8.20.0",
+    "typescript": "^5.7.3",
+    "wrangler": "^4.0.0"
+  }
+}

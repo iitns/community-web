@@ -1,0 +1,31 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "community-web-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "placement": {
+    "mode": "smart"
+  },
+  // Create with: npx wrangler hyperdrive create community-web-db --service-id=<pg-vpc-service-id> --user=... --password=... --database=...
+  "hyperdrive": [
+    {
+      "binding": "HYPERDRIVE",
+      "id": "1fef5049720746549c9f7b3d3a7c4667"
+    }
+  ],
+  // Create with: npx wrangler vpc service create <name> --type http --tunnel-id=<tunnel-id> --hostname=<es-hostname> --http-port=9200
+  "vpc_services": [
+    {
+      "binding": "ES_SERVICE",
+      "service_id": "019f91be-71ce-7dd1-bc1a-fb80b46f0e2f"
+    }
+  ],
+  // Non-secret config. ES_URL/CORS_ALLOWED_ORIGINS can also be overridden per-environment
+  // in the dashboard under Settings > Variables without touching this file.
+  "vars": {
+    "ES_URL": "http://elasticsearch-service.storage.svc.cluster.local:9200",
+    "ES_INDEX": "community_articles",
+    "CORS_ALLOWED_ORIGINS": "https://beobe.amolant.net,https://beobe.janghanpark.com"
+  }
+}
