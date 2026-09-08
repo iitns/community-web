@@ -39,13 +39,13 @@ SITE_DISPLAY_NAMES = {
 RETIRED_SITE_NAMES = frozenset({'루리웹(유머)'})
 
 PG_CONN = {
-    'host':     os.environ.get('PG_HOST', 'postgresql-service'),
+    'host':     os.environ.get('PG_HOST', 'postgres-service.storage.svc.cluster.local'),
     'port':     int(os.environ.get('PG_PORT', 5432)),
     'dbname':   os.environ.get('PG_DB', 'community'),
     'user':     os.environ.get('PG_USER', 'community'),
     'password': os.environ.get('PG_PASSWORD', 'community_pass'),
 }
-ES_HOST = os.environ.get('ES_HOST', 'http://elasticsearch-service:9200')
+ES_HOST = os.environ.get('ES_HOST', 'http://elasticsearch-service.storage.svc.cluster.local:9200')
 ES_INDEX = 'community_articles'
 REDIS_HOST = os.environ.get('REDIS_HOST', '')
 REDIS_PORT = int(os.environ.get('REDIS_PORT', 6379))
